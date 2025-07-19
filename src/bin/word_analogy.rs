@@ -10,6 +10,7 @@ fn get_input() -> io::Result<String> {
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let word_vectors = WordVectors::from_file("vectors.txt")?;
 
+    println!("Word Analogy Tool - Type 'EXIT' to quit\n");
     loop {
         println!("\nWord analogy - KING is to QUEEN as MAN is to ?");
         print!("Enter 3 words: ");
@@ -52,7 +53,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         for (i, (idx, score)) in topn.iter().enumerate() {
-            println!("{:3}: {:>8.5} {}", i + 1, score, word_vectors.words[*idx]);
+            println!(
+                "{:3}: {:>8.5} {}",
+                i + 1,
+                score,
+                word_vectors.get_word(*idx)
+            );
         }
     }
 

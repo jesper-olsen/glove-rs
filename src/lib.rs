@@ -40,13 +40,17 @@ impl Eq for Crec {} // Marker trait - necessary for Ord
 
 // A struct to hold word vectors in a contiguous array for performance.
 pub struct WordVectors {
-    pub words: Vec<String>,           // vocabulary - index to word map
+    words: Vec<String>,               // vocabulary - index to word map
     word_map: HashMap<String, usize>, // word to index map
     vectors: Vec<f64>,                // A single, flattened Vec of all vector data
     dims: usize,                      // The dimension of each vector
 }
 
 impl WordVectors {
+    pub fn get_word(&self, idx: usize) -> &str {
+        &self.words[idx]
+    }
+
     pub fn get_index(&self, word: &str) -> Option<&usize> {
         self.word_map.get(word)
     }
