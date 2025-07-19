@@ -51,3 +51,41 @@ Total Questions seen/total: 91.21% (17827/19544)
 
 sh demo.sh  698.23s user 27.69s system 566% cpu 2:08.21 total
 ```
+
+Word analogy - Interactive
+```
+% cargo run --bin word_analogy --release
+
+Word analogy - KING is to QUEEN as MAN is to ?
+Enter 3 words: king queen man
+  1:  0.90054 woman
+  2:  0.82080 beautiful
+  3:  0.79237 girl
+  4:  0.77680 lady
+  5:  0.77009 my
+  6:  0.72895 she
+  7:  0.72797 animal
+  8:  0.70304 child
+  9:  0.69457 bird
+ 10:  0.69252 baby
+ 11:  0.68946 her
+ 12:  0.68284 mother
+ 13:  0.67897 eyes
+ 14:  0.67114 person
+ 15:  0.67079 horse
+ 16:  0.66328 young
+ 17:  0.66307 dog
+ 18:  0.66300 love
+ 19:  0.66263 a
+ 20:  0.66069 thing
+ 21:  0.65655 every
+ 22:  0.65592 whole
+ 23:  0.65369 your
+ 24:  0.64499 princess
+ 25:  0.64326 husband
+ 26:  0.64320 face
+ 27:  0.64040 female
+ 28:  0.63627 soul
+ 29:  0.63602 eating
+ 30:  0.63438 men
+```

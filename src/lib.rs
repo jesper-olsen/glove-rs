@@ -40,7 +40,7 @@ impl Eq for Crec {} // Marker trait - necessary for Ord
 
 // A struct to hold word vectors in a contiguous array for performance.
 pub struct WordVectors {
-    words: Vec<String>,               // vocabulary - index to word map
+    pub words: Vec<String>,           // vocabulary - index to word map
     word_map: HashMap<String, usize>, // word to index map
     vectors: Vec<f64>,                // A single, flattened Vec of all vector data
     dims: usize,                      // The dimension of each vector
@@ -158,6 +158,49 @@ impl WordVectors {
             );
 
         Some(best_idx)
+    }
+
+    /// same as analogy, except it returns to top n matches
+    pub fn analogy_topn(&self, a: &str, b: &str, c: &str, n: usize) -> Option<Vec<(usize, f64)>> {
+        // Get indices for our words. Compute analogy if none are OOV.
+        let (Some(a_idx), Some(b_idx), Some(c_idx)) =
+            (self.get_index(&a), self.get_index(&b), self.get_index(&c))
+        else {
+            return None;
+        };
+
+        let va = self.get_vector(*a_idx);
+        let vb = self.get_vector(*b_idx);
+        let vc = self.get_vector(*c_idx);
+
+        let mut target_vector = vec![0.0; self.dims];
+        for i in 0..self.dims {
+            target_vector[i] = vb[i] - va[i] + vc[i];
+        }
+
+        // Collect all scores in parallel
+        let mut scores: Vec<(usize, f64)> = self
+            .vectors
+            .par_chunks_exact(self.dims)
+            .enumerate()
+            .filter(|(i, _)| i != a_idx && i != b_idx && i != c_idx)
+            .map(|(i, v_slice)| {
+                let score = v_slice
+                    .iter()
+                    .zip(&target_vector)
+                    .map(|(v, t)| v * t)
+                    .sum::<f64>();
+                (i, score)
+            })
+            .collect();
+
+        // Sort by score in descending order
+        scores.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Take the top N results
+        scores.truncate(n);
+
+        Some(scores)
     }
 }
 
