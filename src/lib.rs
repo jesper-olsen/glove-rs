@@ -1,3 +1,4 @@
+use rayon::prelude::*;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::error::Error;
@@ -40,10 +41,10 @@ impl Eq for Crec {} // Marker trait - necessary for Ord
 
 // A struct to hold word vectors in a contiguous array for performance.
 pub struct WordVectors {
-    pub words: Vec<String>,           // vocabulary - index to word map
+    words: Vec<String>,               // vocabulary - index to word map
     word_map: HashMap<String, usize>, // word to index map
-    pub vectors: Vec<f64>,            // A single, flattened Vec of all vector data
-    pub dims: usize,                  // The dimension of each vector
+    vectors: Vec<f64>,                // A single, flattened Vec of all vector data
+    dims: usize,                      // The dimension of each vector
 }
 
 impl WordVectors {
@@ -51,7 +52,7 @@ impl WordVectors {
         self.word_map.get(word)
     }
 
-    pub fn get_vector(&self, idx: usize) -> &[f64] {
+    fn get_vector(&self, idx: usize) -> &[f64] {
         &self.vectors[idx * self.dims..(idx + 1) * self.dims]
     }
 
@@ -118,6 +119,46 @@ impl WordVectors {
             vectors: vectors_data,
             dims,
         })
+    }
+
+    pub fn analogy(&self, a: &str, b: &str, c: &str) -> Option<usize> {
+        // Get indices for our words. Continue if any are not in the vocab.
+        let (Some(a_idx), Some(b_idx), Some(c_idx)) =
+            (self.get_index(&a), self.get_index(&b), self.get_index(&c))
+        else {
+            return None;
+        };
+
+        let va = self.get_vector(*a_idx);
+        let vb = self.get_vector(*b_idx);
+        let vc = self.get_vector(*c_idx);
+
+        let mut target_vector = vec![0.0; self.dims];
+        for i in 0..self.dims {
+            target_vector[i] = vb[i] - va[i] + vc[i];
+        }
+
+        // Parallel search over contiguous memory ---
+        let (_best_score, best_idx) = self
+            .vectors
+            .par_chunks_exact(self.dims) // Iterate over the vectors in parallel
+            .enumerate() // Get the index of each vector
+            .filter(|(i, _)| i != a_idx && i != b_idx && i != c_idx) // Filter out input words
+            .map(|(i, v_slice)| {
+                // Calculate dot product between the current word's vector and the target
+                let score = v_slice
+                    .iter()
+                    .zip(&target_vector)
+                    .map(|(v, t)| v * t)
+                    .sum::<f64>();
+                (score, i)
+            })
+            .reduce(
+                || (-f64::INFINITY, 0), // (score, index)
+                |best, current| if best.0 > current.0 { best } else { current },
+            );
+
+        Some(best_idx)
     }
 }
 
