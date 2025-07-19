@@ -15,7 +15,8 @@ Download text8 (Wikipedia, 100M characters, 17.5M words):
 % wget http://mattmahoney.net/dc/text8.zip
 % unzip text8.zip
 % wc text8
-  0 17005207 100000000 text8
+
+0 17005207 100000000 text8
 ```
 
 Train and evaluate
