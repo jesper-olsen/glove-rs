@@ -16,8 +16,8 @@ struct Args {
     verbose: i32,
 
     /// Use symmetric context window
-    #[arg(long)] // This creates a boolean flag, false by default
-    symmetric: bool,
+    #[arg(long)]
+    asymmetric: bool,
 
     /// Set context window size
     #[arg(long = "window-size", default_value_t = 15)]
@@ -431,7 +431,7 @@ fn main() -> io::Result<()> {
 
     let config = Config {
         verbose: args.verbose,
-        symmetric: args.symmetric,
+        symmetric: !args.asymmetric,
         window_size: args.window_size,
         vocab_file: args.vocab_file,
         file_head: args.file_head,
@@ -440,14 +440,9 @@ fn main() -> io::Result<()> {
         overflow_length,
     };
 
-    eprintln!("VERIFY PARAMS:");
-    eprintln!("  max_product: {}", config.max_product);
-    eprintln!("  overflow_length: {}", config.overflow_length);
-    eprintln!("--------------------");
-
     let num_tmp_files = get_cooccurrences(&config)?;
 
-    // Stage 2: Merge the temporary files into the final output on stdout.
+    // Merge the temporary files into the final output on stdout.
     if num_tmp_files > 0 {
         merge_files(&config, num_tmp_files)?;
     } else {
