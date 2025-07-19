@@ -11,10 +11,9 @@ use std::io::{self, BufRead};
 pub struct Crec {
     pub word1: i32,
     pub word2: i32,
-    pub val: f64, // Using f64 for `real` type
+    pub val: f64,
 }
 
-// Custom Ord implementation to match C's `compare_crec`
 impl Ord for Crec {
     fn cmp(&self, other: &Self) -> Ordering {
         self.word1
@@ -122,7 +121,7 @@ impl WordVectors {
     }
 
     pub fn analogy(&self, a: &str, b: &str, c: &str) -> Option<usize> {
-        // Get indices for our words. Continue if any are not in the vocab.
+        // Get indices for our words. Compute analogy if none are OOV.
         let (Some(a_idx), Some(b_idx), Some(c_idx)) =
             (self.get_index(&a), self.get_index(&b), self.get_index(&c))
         else {

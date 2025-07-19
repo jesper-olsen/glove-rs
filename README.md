@@ -20,7 +20,7 @@ Download text8 (Wikipedia, 100M characters, 17.5M words):
 
 Train and evaluate
 ```
-% sh demo.sh
+% time sh demo.sh
 
 SEMANTIC ANALOGY TESTS
 File: capital-common-countries.txt — Accuracy: 62.06% (314/506)
@@ -47,4 +47,6 @@ SYNTACTIC Questions seen/total: 97.53% (10411/10411)
 OVERALL RESULTS:
 Total Accuracy: 23.20% (4135/17827)
 Total Questions seen/total: 91.21% (17827/19544)
+
+sh demo.sh  698.23s user 27.69s system 566% cpu 2:08.21 total
 ```
