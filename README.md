@@ -89,3 +89,47 @@ Enter 3 words: king queen man
  29:  0.63602 eating
  30:  0.63438 men
 ```
+
+Near words - Interactive
+```
+% cargo run --release --bin nearest_words
+Near Words Tool - Type 'EXIT' to quit
+
+
+Ranking nearest words to a word or sentence.
+Enter 1 or more words: queen
+
+Nearest words to 'queen':
+Rank      Score Word
+------------------------------
+   1:   0.855369 elizabeth
+   2:   0.762092 mary
+   3:   0.747534 prince
+   4:   0.741500 lady
+   5:   0.722234 princess
+   6:   0.715148 king
+   7:   0.709681 victoria
+   8:   0.703643 daughter
+   9:   0.701951 crown
+  10:   0.697417 consort
+  11:   0.684420 throne
+  12:   0.681335 mother
+  13:   0.680450 wife
+  14:   0.677718 anne
+  15:   0.674819 married
+  16:   0.649235 scotland
+  17:   0.639634 monarch
+  18:   0.634807 kingdom
+  19:   0.625069 england
+  20:   0.621180 husband
+  21:   0.620562 henry
+  22:   0.611689 wales
+  23:   0.608731 catherine
+  24:   0.598853 isabella
+  25:   0.595902 her
+  26:   0.595897 son
+  27:   0.586912 royal
+  28:   0.585035 house
+  29:   0.580376 duke
+  30:   0.579909 maria
+```
