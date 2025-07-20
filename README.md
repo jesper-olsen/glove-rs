@@ -28,7 +28,7 @@ Download text8 (Wikipedia, 100M characters, 17.5M words):
 0 17005207 100000000 text8
 ```
 
-Train and evaluate
+Train on text8 and evaluate on the [Google Analogy Dataset](https://aclweb.org/aclwiki/Google_analogy_test_set_(State_of_the_art):
 ```
 % time sh demo.sh
 
