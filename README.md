@@ -1,6 +1,15 @@
 # GloVe-rs
 
-Rusty GloVe - Rust implementation of [GloVe](https://github.com/stanfordnlp/GloVe).
+Word Vectors - Rusty implementation of [GloVe](https://github.com/stanfordnlp/GloVe).
+
+GloVe vectors map words to points in a continuous vector space where semantically similar words are located near each other. Unlike simple one-hot encodings, these dense vectors capture rich linguistic patterns and relationships.
+
+For example:
+
+* Similarity: "cat" and "dog" have similar vectors (high cosine similarity)
+* Analogies: vector("king") - vector("man") + vector("woman") ≈ vector("queen")
+* Semantic arithmetic: vector("paris") - vector("france") + vector("japan") ≈ vector("tokyo")
+* These 50-300 dimensional vectors are learned from word co-occurrence statistics and form the foundation for many NLP applications.
 
 ## References
 
