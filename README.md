@@ -93,7 +93,7 @@ Enter 3 words: king queen man
 
 Near words - Interactive
 ```
-% cargo run --release --bin nearest_words
+% cargo run --release --bin near_words
 Near Words Tool - Type 'EXIT' to quit
 
 Ranking nearest words to a word or sentence.
