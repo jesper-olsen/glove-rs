@@ -55,6 +55,7 @@ sh demo.sh  698.23s user 27.69s system 566% cpu 2:08.21 total
 Word analogy - Interactive
 ```
 % cargo run --bin word_analogy --release
+Word Analogy Tool - Type 'EXIT' to quit
 
 Word analogy - KING is to QUEEN as MAN is to ?
 Enter 3 words: king queen man
@@ -94,7 +95,6 @@ Near words - Interactive
 ```
 % cargo run --release --bin nearest_words
 Near Words Tool - Type 'EXIT' to quit
-
 
 Ranking nearest words to a word or sentence.
 Enter 1 or more words: queen
