@@ -11,9 +11,6 @@ use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
 use std::{mem, thread};
 
-// Type alias for floating point precision, matching `real` in the C code (typically f64).
-type Real = f64;
-
 /// Command-line arguments parsed by Clap.
 #[derive(Parser, Debug)]
 #[clap(author, version, about, long_about = None)]
@@ -27,11 +24,11 @@ struct Cli {
     #[clap(long, value_parser, default_value_t = 8)]
     threads: usize,
     #[clap(long, value_parser, default_value_t = 0.05)]
-    eta: Real,
+    eta: f64,
     #[clap(long, value_parser, default_value_t = 0.75)]
-    alpha: Real,
+    alpha: f64,
     #[clap(long, value_parser, default_value_t = 10.0)]
-    x_max: Real,
+    x_max: f64,
     #[clap(
         long,
         value_parser,
@@ -67,10 +64,10 @@ struct Config {
     num_iter: usize,
     use_binary: i32,
     model: i32,
-    x_max: Real,
-    alpha: Real,
-    eta: Real,
-    grad_clip_value: Real,
+    x_max: f64,
+    alpha: f64,
+    eta: f64,
+    grad_clip_value: f64,
     verbose: i32,
     seed: u64,
 }
@@ -82,13 +79,13 @@ struct Config {
 struct CoRec {
     word1: i32,
     word2: i32,
-    val: Real,
+    val: f64,
 }
 
 /// A wrapper around a Vec that allows it to be shared across threads unsafely.
 /// This is necessary to replicate the lock-free SGD ("Hogwild!") behavior of
 /// the original C code, where data races on vector updates are tolerated.
-struct UnsafeSyncVec(Vec<Real>);
+struct UnsafeSyncVec(Vec<f64>);
 unsafe impl Sync for UnsafeSyncVec {}
 
 /// Holds the model parameters (word vectors and their squared gradients).
@@ -98,7 +95,7 @@ struct GloveModel {
 }
 
 /// Entry point for the training process.
-pub fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
+fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
     eprintln!("TRAINING MODEL");
 
     let vocab_size = count_vocab(&config.vocab_file)?;
@@ -154,13 +151,13 @@ pub fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
             }
         });
 
-        let final_cost: Real = total_cost.lock().unwrap().iter().sum();
+        let final_cost: f64 = total_cost.lock().unwrap().iter().sum();
         let time_str = Local::now().format("%x - %I:%M.%S%p");
         eprintln!(
             "{}, iter: {:03}, cost: {}",
             time_str,
             b + 1,
-            final_cost / num_lines as Real
+            final_cost / num_lines as f64
         );
     }
 
@@ -176,13 +173,13 @@ fn glove_thread(
     config: &Config,
     w_arc: &Arc<UnsafeSyncVec>,
     gradsq_arc: &Arc<UnsafeSyncVec>,
-    cost_arc: &Arc<Mutex<Vec<Real>>>,
+    cost_arc: &Arc<Mutex<Vec<f64>>>,
     lines_to_process: usize,
     file_offset: usize,
     vocab_size: usize,
 ) {
-    let w_ptr = w_arc.0.as_ptr() as *mut Real;
-    let gradsq_ptr = gradsq_arc.0.as_ptr() as *mut Real;
+    let w_ptr = w_arc.0.as_ptr() as *mut f64;
+    let gradsq_ptr = gradsq_arc.0.as_ptr() as *mut f64;
 
     let mut thread_cost = 0.0;
     let mut fin = match File::open(&config.input_file) {
@@ -203,8 +200,8 @@ fn glove_thread(
     let mut corec_buf = [0u8; mem::size_of::<CoRec>()];
 
     // FIX 2: Explicitly type the float literal to resolve ambiguity for the compiler.
-    let mut w_updates1 = vec![0.0 as Real; config.vector_size];
-    let mut w_updates2 = vec![0.0 as Real; config.vector_size];
+    let mut w_updates1 = vec![0.0 as f64; config.vector_size];
+    let mut w_updates2 = vec![0.0 as f64; config.vector_size];
 
     for _ in 0..lines_to_process {
         if reader.read_exact(&mut corec_buf).is_err() {
@@ -290,19 +287,19 @@ fn initialize_parameters(config: &Config, vocab_size: usize) -> GloveModel {
         StdRng::seed_from_u64(config.seed)
     };
     let w_size = 2 * vocab_size * (config.vector_size + 1);
-    let mut w_vec = vec![0.0 as Real; w_size];
+    let mut w_vec = vec![0.0 as f64; w_size];
     for val in w_vec.iter_mut() {
-        *val = (rng.random::<Real>() - 0.5) / config.vector_size as Real;
+        *val = (rng.random::<f64>() - 0.5) / config.vector_size as f64;
     }
     // FIX 2: Explicitly type the float literal here as well.
-    let gradsq_vec = vec![1.0 as Real; w_size];
+    let gradsq_vec = vec![1.0 as f64; w_size];
     GloveModel {
         w: Arc::new(UnsafeSyncVec(w_vec)),
         gradsq: Arc::new(UnsafeSyncVec(gradsq_vec)),
     }
 }
 
-fn save_params(w: &[Real], config: &Config, vocab_size: usize, iter: i32) -> io::Result<()> {
+fn save_params(w: &[f64], config: &Config, vocab_size: usize, iter: i32) -> io::Result<()> {
     let save_file_str = config.save_file.to_str().unwrap();
 
     if config.use_binary > 0 {
@@ -389,7 +386,7 @@ fn calculate_lines_per_thread(num_lines: usize, num_threads: usize) -> Vec<usize
 }
 
 #[inline]
-fn check_nan(update: Real) -> Real {
+fn check_nan(update: f64) -> f64 {
     if update.is_nan() || update.is_infinite() {
         0.0
     } else {
