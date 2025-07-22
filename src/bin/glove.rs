@@ -1,6 +1,7 @@
-use bytemuck::{Pod, Zeroable, pod_read_unaligned};
+use bytemuck::pod_read_unaligned;
 use chrono::Local;
 use clap::Parser;
+use glove_rs::Crec;
 use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::error::Error;
@@ -72,16 +73,6 @@ struct Config {
     seed: u64,
 }
 
-/// Co-occurrence record struct. `repr(C)` and `Pod` ensure the memory layout
-/// is identical to the C struct, allowing us to read the binary file directly.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Pod, Zeroable)]
-struct CoRec {
-    word1: i32,
-    word2: i32,
-    val: f64,
-}
-
 /// A wrapper around a Vec that allows it to be shared across threads unsafely.
 /// This is necessary to replicate the lock-free SGD ("Hogwild!") behavior of
 /// the original C code, where data races on vector updates are tolerated.
@@ -101,7 +92,7 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
     let vocab_size = count_vocab(&config.vocab_file)?;
     let num_lines = {
         let file_meta = metadata(&config.input_file)?;
-        (file_meta.len() / mem::size_of::<CoRec>() as u64) as usize
+        (file_meta.len() / mem::size_of::<Crec>() as u64) as usize
     };
 
     if config.verbose > 1 {
@@ -190,14 +181,14 @@ fn glove_thread(
         }
     };
 
-    let start_offset = file_offset * mem::size_of::<CoRec>();
+    let start_offset = file_offset * mem::size_of::<Crec>();
     if let Err(e) = fin.seek(SeekFrom::Start(start_offset as u64)) {
         eprintln!("Thread {}: Failed to seek in input file: {}", id, e);
         return;
     }
 
     let mut reader = BufReader::with_capacity(8192, fin);
-    let mut corec_buf = [0u8; mem::size_of::<CoRec>()];
+    let mut corec_buf = [0u8; mem::size_of::<Crec>()];
 
     // FIX 2: Explicitly type the float literal to resolve ambiguity for the compiler.
     let mut w_updates1 = vec![0.0 as f64; config.vector_size];
@@ -209,7 +200,7 @@ fn glove_thread(
         }
 
         // FIX 1: Use pod_read_unaligned for a direct, unambiguous conversion from bytes to struct.
-        let cr: CoRec = pod_read_unaligned(&corec_buf);
+        let cr: Crec = pod_read_unaligned(&corec_buf);
 
         if cr.word1 < 1 || cr.word2 < 1 {
             continue;

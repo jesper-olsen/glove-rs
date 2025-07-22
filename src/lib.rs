@@ -1,3 +1,4 @@
+use bytemuck::{Pod, Zeroable};
 use rayon::prelude::*;
 use std::cmp::Ordering;
 use std::collections::HashMap;
@@ -5,8 +6,9 @@ use std::error::Error;
 use std::fs;
 use std::io::{self, BufRead};
 
-// Deriving Ord allows for direct sorting. The order is important: word1 then word2.
-#[derive(Debug, Copy, Clone, Default)]
+/// Co-occurrence record struct. `repr(C)` and `Pod` ensure the memory layout
+/// is identical to the C struct, allowing us to read the binary file directly.
+#[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
 #[repr(C)]
 pub struct Crec {
     pub word1: i32,
@@ -16,6 +18,7 @@ pub struct Crec {
 
 impl Ord for Crec {
     fn cmp(&self, other: &Self) -> Ordering {
+        // sort order: word 1 then word 2
         self.word1
             .cmp(&other.word1)
             .then_with(|| self.word2.cmp(&other.word2))
