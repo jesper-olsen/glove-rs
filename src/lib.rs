@@ -74,7 +74,7 @@ impl WordVectors {
 
         for (index, line_result) in reader.lines().enumerate() {
             let line = line_result?;
-            let mut parts = line.trim().split_whitespace();
+            let mut parts = line.split_whitespace();
 
             if let Some(key) = parts.next() {
                 let current_word = key.to_string();
@@ -130,7 +130,7 @@ impl WordVectors {
     pub fn analogy(&self, a: &str, b: &str, c: &str) -> Option<usize> {
         // Get indices for our words. Compute analogy if none are OOV.
         let (Some(a_idx), Some(b_idx), Some(c_idx)) =
-            (self.get_index(&a), self.get_index(&b), self.get_index(&c))
+            (self.get_index(a), self.get_index(b), self.get_index(c))
         else {
             return None;
         };
@@ -171,7 +171,7 @@ impl WordVectors {
     pub fn analogy_topn(&self, a: &str, b: &str, c: &str, n: usize) -> Option<Vec<(usize, f64)>> {
         // Get indices for our words. Compute analogy if none are OOV.
         let (Some(a_idx), Some(b_idx), Some(c_idx)) =
-            (self.get_index(&a), self.get_index(&b), self.get_index(&c))
+            (self.get_index(a), self.get_index(b), self.get_index(c))
         else {
             return None;
         };
@@ -238,8 +238,8 @@ impl WordVectors {
             return None;
         }
 
-        for i in 0..self.dims {
-            target_vector[i] /= magnitude;
+        for e in target_vector.iter_mut().take(self.dims) {
+            *e /= magnitude
         }
 
         // Collect all scores in parallel

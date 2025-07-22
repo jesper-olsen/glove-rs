@@ -19,7 +19,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if s == "EXIT" {
             break;
         }
-        let words: Vec<&str> = s.trim().split_whitespace().collect();
+        let words: Vec<&str> = s.split_whitespace().collect();
         if words.len() < 3 {
             println!("Only {} words were input. Try again", words.len());
             continue;
@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         match words.len() {
             3 => (),
             n => {
-                println!("Expected exactly 3 words, but got {}. Try again.", n);
+                println!("Expected exactly 3 words, but got {n}. Try again.");
                 continue;
             }
         }
@@ -42,12 +42,12 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         if !oov_words.is_empty() {
             for word in &oov_words {
-                println!("'{}' is out of vocabulary", word);
+                println!("'{word}' is out of vocabulary");
             }
             continue;
         }
 
-        let Some(topn) = word_vectors.analogy_topn(&words[0], &words[1], &words[2], 30) else {
+        let Some(topn) = word_vectors.analogy_topn(words[0], words[1], words[2], 30) else {
             println!("No analogies");
             continue;
         };

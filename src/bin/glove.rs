@@ -96,7 +96,7 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
     };
 
     if config.verbose > 1 {
-        eprintln!("Read {} lines.", num_lines);
+        eprintln!("Read {num_lines} lines.");
         eprintln!("Initializing parameters...");
     }
 
@@ -107,7 +107,7 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
         eprintln!("done.");
     }
     if config.verbose > 0 {
-        eprintln!("vocab size: {}", vocab_size);
+        eprintln!("vocab size: {vocab_size}");
         eprintln!("vector size: {}", config.vector_size);
         eprintln!("x_max: {}", config.x_max);
         eprintln!("alpha: {}", config.alpha);
@@ -145,8 +145,7 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
         let final_cost: f64 = total_cost.lock().unwrap().iter().sum();
         let time_str = Local::now().format("%x - %I:%M.%S%p");
         eprintln!(
-            "{}, iter: {:03}, cost: {}",
-            time_str,
+            "{time_str}, iter: {:03}, cost: {}",
             b + 1,
             final_cost / num_lines as f64
         );
@@ -176,14 +175,14 @@ fn glove_thread(
     let mut fin = match File::open(&config.input_file) {
         Ok(file) => file,
         Err(e) => {
-            eprintln!("Thread {}: Failed to open input file: {}", id, e);
+            eprintln!("Thread {id}: Failed to open input file: {e}");
             return;
         }
     };
 
     let start_offset = file_offset * mem::size_of::<Crec>();
     if let Err(e) = fin.seek(SeekFrom::Start(start_offset as u64)) {
-        eprintln!("Thread {}: Failed to seek in input file: {}", id, e);
+        eprintln!("Thread {id}: Failed to seek in input file: {e}");
         return;
     }
 
@@ -191,8 +190,8 @@ fn glove_thread(
     let mut corec_buf = [0u8; mem::size_of::<Crec>()];
 
     // FIX 2: Explicitly type the float literal to resolve ambiguity for the compiler.
-    let mut w_updates1 = vec![0.0 as f64; config.vector_size];
-    let mut w_updates2 = vec![0.0 as f64; config.vector_size];
+    let mut w_updates1 = vec![0.0f64; config.vector_size];
+    let mut w_updates2 = vec![0.0f64; config.vector_size];
 
     for _ in 0..lines_to_process {
         if reader.read_exact(&mut corec_buf).is_err() {
@@ -271,19 +270,19 @@ fn initialize_parameters(config: &Config, vocab_size: usize) -> GloveModel {
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        eprintln!("Using random seed {}", seed);
+        eprintln!("Using random seed {seed}");
         StdRng::seed_from_u64(seed)
     } else {
         eprintln!("Using random seed {}", config.seed);
         StdRng::seed_from_u64(config.seed)
     };
     let w_size = 2 * vocab_size * (config.vector_size + 1);
-    let mut w_vec = vec![0.0 as f64; w_size];
+    let mut w_vec = vec![0.0f64; w_size];
     for val in w_vec.iter_mut() {
         *val = (rng.random::<f64>() - 0.5) / config.vector_size as f64;
     }
     // FIX 2: Explicitly type the float literal here as well.
-    let gradsq_vec = vec![1.0 as f64; w_size];
+    let gradsq_vec = vec![1.0f64; w_size];
     GloveModel {
         w: Arc::new(UnsafeSyncVec(w_vec)),
         gradsq: Arc::new(UnsafeSyncVec(gradsq_vec)),
@@ -295,9 +294,9 @@ fn save_params(w: &[f64], config: &Config, vocab_size: usize, iter: i32) -> io::
 
     if config.use_binary > 0 {
         let bin_filename = if iter < 0 {
-            format!("{}.bin", save_file_str)
+            format!("{save_file_str}.bin")
         } else {
-            format!("{}.{:03}.bin", save_file_str, iter)
+            format!("{save_file_str}.{iter:03}.bin")
         };
         let mut f_out = BufWriter::new(File::create(bin_filename)?);
         f_out.write_all(bytemuck::cast_slice(w))?;
@@ -305,9 +304,9 @@ fn save_params(w: &[f64], config: &Config, vocab_size: usize, iter: i32) -> io::
 
     if config.use_binary != 1 {
         let txt_filename = if iter < 0 {
-            format!("{}.txt", save_file_str)
+            format!("{save_file_str}.txt")
         } else {
-            format!("{}.{:03}.txt", save_file_str, iter)
+            format!("{save_file_str}.{iter:03}.txt")
         };
         let mut f_out = BufWriter::new(File::create(txt_filename)?);
         let vocab_file = BufReader::new(File::open(&config.vocab_file)?);
@@ -318,7 +317,7 @@ fn save_params(w: &[f64], config: &Config, vocab_size: usize, iter: i32) -> io::
             .collect();
 
         for (i, word) in vocab.iter().enumerate().take(vocab_size) {
-            write!(f_out, "{}", word)?;
+            write!(f_out, "{word}")?;
             let l1 = i * (config.vector_size + 1);
             let l2 = (i + vocab_size) * (config.vector_size + 1);
 
@@ -369,11 +368,11 @@ fn calculate_lines_per_thread(num_lines: usize, num_threads: usize) -> Vec<usize
     if num_threads == 0 {
         return vec![];
     }
-    let mut lines_per_thread = vec![num_lines / num_threads; num_threads];
-    for i in 0..(num_lines % num_threads) {
-        lines_per_thread[i] += 1;
-    }
-    lines_per_thread
+    let base = num_lines / num_threads;
+    let extra = num_lines % num_threads;
+    (0..num_threads)
+        .map(|i| if i < extra { base + 1 } else { base })
+        .collect()
 }
 
 #[inline]

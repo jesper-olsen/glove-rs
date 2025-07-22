@@ -20,7 +20,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Goodbye!");
             break;
         }
-        let words: Vec<&str> = s.trim().split_whitespace().collect();
+        let words: Vec<&str> = s.split_whitespace().collect();
         if words.is_empty() {
             println!("No words were input. Try again");
             continue;
@@ -34,7 +34,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         if !oov_words.is_empty() {
             for word in &oov_words {
-                println!("'{}' is out of vocabulary", word);
+                println!("'{word}' is out of vocabulary");
             }
             continue;
         }
@@ -46,7 +46,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         };
 
         println!("\nNearest words to '{}':", words.join(" + "));
-        println!("{:>4} {:>10} {}", "Rank", "Score", "Word");
+        println!("{:>4} {:>10} Word", "Rank", "Score");
         println!("{}", "-".repeat(30));
 
         for (i, (idx, score)) in topn.iter().enumerate() {

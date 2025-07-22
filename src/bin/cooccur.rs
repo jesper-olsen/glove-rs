@@ -122,7 +122,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
     }
     let vocab_size = rank;
     if config.verbose > 1 {
-        eprintln!("loaded {} words.", vocab_size);
+        eprintln!("loaded {vocab_size} words.");
         eprintln!("Building lookup table...");
     }
 
@@ -186,7 +186,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
 
             token_counter += 1;
             if config.verbose > 1 && token_counter % 100_000 == 0 {
-                eprint!("\x1B[19G{}", token_counter); // ANSI escape to move cursor
+                eprint!("\x1B[19G{token_counter}"); // ANSI escape to move cursor
                 io::stderr().flush()?;
             }
 
@@ -236,7 +236,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
 
     // --- Final Write-out ---
     if config.verbose > 1 {
-        eprint!("\x1B[0GProcessed {} tokens.\n", token_counter);
+        eprintln!("\x1B[0GProcessed {token_counter} tokens.");
     }
     cr_overflow[..cr_idx].sort_unstable();
     for rec in &cr_overflow[..cr_idx] {
@@ -298,10 +298,7 @@ pub fn merge_files(config: &Config, num_files: usize) -> io::Result<()> {
             Ok(f) => f,
             Err(e) => {
                 // If a file can't be opened (e.g., _0000.bin was empty), just warn and skip.
-                eprintln!(
-                    "\nWarning: Could not open temp file {}: {}. Skipping.",
-                    filename, e
-                );
+                eprintln!("\nWarning: Could not open temp file {filename}: {e}. Skipping.");
                 file_readers.push(None); // Add a placeholder
                 continue;
             }
@@ -349,7 +346,7 @@ pub fn merge_files(config: &Config, num_files: usize) -> io::Result<()> {
             write_crec(&mut fout, &old_item.crec)?;
             counter += 1;
             if config.verbose > 1 && counter % 100_000 == 0 {
-                eprint!("\x1B[39G{} lines.", counter);
+                eprint!("\x1B[39G{counter} lines.");
                 io::stderr().flush()?;
             }
             // ...and start accumulating the new one.
@@ -373,15 +370,12 @@ pub fn merge_files(config: &Config, num_files: usize) -> io::Result<()> {
     counter += 1;
     fout.flush()?; // Ensure stdout is flushed
 
-    eprint!(
-        "\x1B[0GMerging cooccurrence files: processed {} lines.\n",
-        counter
-    );
+    eprintln!("\x1B[0GMerging cooccurrence files: processed {counter} lines.");
 
     // --- Cleanup: Remove temporary files ---
     for filename in filenames {
         if let Err(e) = fs::remove_file(&filename) {
-            eprintln!("Warning: could not remove temp file {}: {}", filename, e);
+            eprintln!("Warning: could not remove temp file {filename}: {e}");
         }
     }
     eprintln!("\n");

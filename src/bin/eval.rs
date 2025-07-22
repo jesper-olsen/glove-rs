@@ -64,7 +64,7 @@ fn analogy_test(models: &WordVectors) -> Result<(), std::io::Error> {
 
         for fname in files {
             let path = format!("DATA/question-data/{fname}");
-            let (correct, seen, total) = analogy_test_file(&models, &path)?;
+            let (correct, seen, total) = analogy_test_file(models, &path)?;
             println!(
                 "File: {fname} — Accuracy: {:4.2}% ({correct}/{seen})",
                 100.0 * correct as f64 / seen as f64

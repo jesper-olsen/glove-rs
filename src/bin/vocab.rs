@@ -41,7 +41,7 @@ fn main() -> io::Result<()> {
 
     // Print vocabulary to stdout
     for (word, count) in vocabulary {
-        println!("{}\t{}", word, count);
+        println!("{word}\t{count}");
     }
 
     Ok(())

@@ -60,7 +60,7 @@ fn main() {
     };
 
     if let Err(e) = shuffle_by_chunks(config) {
-        eprintln!("\nAn error occurred: {}", e);
+        eprintln!("\nAn error occurred: {e}");
         process::exit(1);
     }
 }
@@ -75,7 +75,7 @@ fn shuffle_by_chunks(config: Config) -> io::Result<()> {
             .as_secs()
     });
 
-    writeln!(stderr, "Using random seed {}", seed)?;
+    writeln!(stderr, "Using random seed {seed}")?;
     let mut rng = StdRng::seed_from_u64(seed);
 
     let mut array: Vec<Crec> = Vec::with_capacity(config.array_size);
@@ -142,10 +142,9 @@ fn shuffle_by_chunks(config: Config) -> io::Result<()> {
         // Overwrite the progress line
         write!(
             stderr,
-            "\x1B[2K\rShuffling by chunks: processed {} lines.\n",
-            total_lines
+            "\x1B[2K\rShuffling by chunks: processed {total_lines} lines.\n"
         )?;
-        writeln!(stderr, "Wrote {} temporary file(s).", file_counter)?;
+        writeln!(stderr, "Wrote {file_counter} temporary file(s).")?;
     }
 
     // Merge the temporary files
@@ -154,7 +153,7 @@ fn shuffle_by_chunks(config: Config) -> io::Result<()> {
 
 /// Helper to shuffle a chunk and write it to a temporary file.
 fn shuffle_and_write_chunk(
-    array: &mut Vec<Crec>,
+    array: &mut [Crec],
     rng: &mut StdRng,
     config: &Config,
     file_id: usize,
@@ -167,8 +166,7 @@ fn shuffle_and_write_chunk(
     if config.verbose > 1 {
         write!(
             stderr,
-            "\rShuffling by chunks: processed {} lines.",
-            total_lines
+            "\rShuffling by chunks: processed {total_lines} lines."
         )?;
         stderr.flush()?;
     }
@@ -179,10 +177,7 @@ fn shuffle_and_write_chunk(
 
     // Write the contents of the array to the binary file.
     let byte_slice = unsafe {
-        std::slice::from_raw_parts(
-            array.as_ptr() as *const u8,
-            array.len() * mem::size_of::<Crec>(),
-        )
+        std::slice::from_raw_parts(array.as_ptr() as *const u8, std::mem::size_of_val(array))
     };
     writer.write_all(byte_slice)?;
 
@@ -260,7 +255,7 @@ fn shuffle_merge(num_files: usize, config: &Config, rng: &mut StdRng) -> io::Res
         stdout.write_all(byte_slice)?;
 
         if config.verbose > 0 {
-            write!(stderr, "\x1B[31G{} lines.", total_lines)?;
+            write!(stderr, "\x1B[31G{total_lines} lines.")?;
             stderr.flush()?;
         }
     }
@@ -268,8 +263,7 @@ fn shuffle_merge(num_files: usize, config: &Config, rng: &mut StdRng) -> io::Res
     if config.verbose > 0 {
         writeln!(
             stderr,
-            "\x1B[0GMerging temp files: processed {} lines.",
-            total_lines
+            "\x1B[0GMerging temp files: processed {total_lines} lines."
         )?;
     }
 
@@ -277,7 +271,7 @@ fn shuffle_merge(num_files: usize, config: &Config, rng: &mut StdRng) -> io::Res
     for i in 0..num_files {
         let filename = format!("{}_{:04}.bin", config.temp_file_head, i);
         if let Err(e) = fs::remove_file(&filename) {
-            eprintln!("Warning: could not remove temp file '{}': {}", filename, e);
+            eprintln!("Warning: could not remove temp file '{filename}': {e}");
         }
     }
 
