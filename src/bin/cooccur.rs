@@ -113,7 +113,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
     // --- Read Vocabulary ---
     let vocab_file = File::open(&config.vocab_file)?;
     let mut vocab_hash = HashMap::new();
-    let mut rank = 0u32;
+    let mut rank = 0usize;
     for line in BufReader::new(vocab_file).lines() {
         if let Some(word) = line?.split_whitespace().next() {
             rank += 1;
@@ -129,7 +129,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
     // --- Build Lookup Table ---
     let mut lookup = vec![0u64; vocab_size as usize + 1];
     lookup[0] = 1;
-    for i in 1..=vocab_size as usize {
+    for i in 1..=vocab_size {
         let val = config.max_product / i as u64;
         lookup[i] = lookup[i - 1]
             + if val < vocab_size as u64 {
