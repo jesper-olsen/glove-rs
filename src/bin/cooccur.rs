@@ -46,7 +46,7 @@ pub struct Config {
     pub verbose: i32,
     pub symmetric: bool,
     pub distance_weighting: bool,
-    pub max_product: i64,
+    pub max_product: u64,
     pub overflow_length: usize,
     pub vocab_file: String,
     pub file_head: String,
@@ -113,7 +113,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
     // --- Read Vocabulary ---
     let vocab_file = File::open(&config.vocab_file)?;
     let mut vocab_hash = HashMap::new();
-    let mut rank = 0i64;
+    let mut rank = 0u32;
     for line in BufReader::new(vocab_file).lines() {
         if let Some(word) = line?.split_whitespace().next() {
             rank += 1;
@@ -127,11 +127,16 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
     }
 
     // --- Build Lookup Table ---
-    let mut lookup = vec![0i64; vocab_size as usize + 1];
+    let mut lookup = vec![0u64; vocab_size as usize + 1];
     lookup[0] = 1;
     for i in 1..=vocab_size as usize {
-        let val = config.max_product / i as i64;
-        lookup[i] = lookup[i - 1] + if val < vocab_size { val } else { vocab_size };
+        let val = config.max_product / i as u64;
+        lookup[i] = lookup[i - 1]
+            + if val < vocab_size as u64 {
+                val
+            } else {
+                vocab_size as u64
+            };
     }
     if config.verbose > 1 {
         eprintln!("table contains {} elements.", lookup[vocab_size as usize]);
@@ -140,7 +145,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
     // --- Allocate Memory ---
     let mut bigram_table = vec![0.0f64; lookup[vocab_size as usize] as usize];
     let mut cr_overflow = vec![Crec::default(); config.overflow_length + 1];
-    let mut history = vec![0i64; config.window_size];
+    let mut history = vec![0u32; config.window_size];
     let mut fid_counter = 1;
 
     let overflow_threshold = if config.symmetric {
@@ -161,7 +166,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
     let mut foverflow = BufWriter::new(File::create(&overflow_filename)?);
 
     let stdin = io::stdin();
-    let mut token_counter = 0i64;
+    let mut token_counter = 0u64;
     let mut cr_idx = 0;
 
     let mut reader = BufReader::new(stdin.lock());
@@ -202,26 +207,26 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
                         1.0
                     };
 
-                    if w1 < config.max_product / w2 {
+                    if w1 < (config.max_product / w2 as u64).try_into().unwrap() {
                         // Product is small enough for the main bigram table
-                        let index1 = (lookup[(w1 - 1) as usize] + w2 - 2) as usize;
+                        let index1 = (lookup[(w1 - 1) as usize] + w2 as u64 - 2) as usize;
                         bigram_table[index1] += weight;
                         if config.symmetric {
-                            let index2 = (lookup[(w2 - 1) as usize] + w1 - 2) as usize;
+                            let index2 = (lookup[(w2 - 1) as usize] + w1 as u64 - 2) as usize;
                             bigram_table[index2] += weight;
                         }
                     } else {
                         // Product is too big, store in overflow buffer
                         cr_overflow[cr_idx] = Crec {
-                            word1: w1 as u32,
-                            word2: w2 as u32,
+                            word1: w1,
+                            word2: w2,
                             val: weight,
                         };
                         cr_idx += 1;
                         if config.symmetric {
                             cr_overflow[cr_idx] = Crec {
-                                word1: w2 as u32,
-                                word2: w1 as u32,
+                                word1: w2,
+                                word2: w1,
                                 val: weight,
                             };
                             cr_idx += 1;
@@ -256,15 +261,15 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
             eprint!(".");
             io::stderr().flush()?;
         }
-        let y_limit = (lookup[x as usize] - lookup[x as usize - 1]) as i64;
+        let y_limit = lookup[x as usize] - lookup[x as usize - 1];
         for y in 1..=y_limit {
             let val = bigram_table[(lookup[x as usize - 1] - 2 + y) as usize];
             if val != 0.0 {
                 write_crec(
                     &mut fbigram,
                     &Crec {
-                        word1: x as u32,
-                        word2: y as u32,
+                        word1: x,
+                        word2: y.try_into().unwrap(),
                         val,
                     },
                 )?;
@@ -384,10 +389,10 @@ pub fn merge_files(config: &Config, num_files: usize) -> io::Result<()> {
 }
 
 /// Calculates max_product and overflow_length based on a memory limit in GB.
-fn calculate_memory_params(memory_limit_gb: f64) -> (i64, usize) {
+fn calculate_memory_params(memory_limit_gb: f64) -> (u64, usize) {
     if memory_limit_gb <= 0.0 {
         // use very large values to simulate "unlimited".
-        const LARGE_MAX_PRODUCT: i64 = 1_000_000_000; // 1 billion
+        const LARGE_MAX_PRODUCT: u64 = 1_000_000_000; // 1 billion
         const LARGE_OVERFLOW_LENGTH: usize = 1_000_000_000; // 1 billion
         return (LARGE_MAX_PRODUCT, LARGE_OVERFLOW_LENGTH);
     }
@@ -413,7 +418,7 @@ fn calculate_memory_params(memory_limit_gb: f64) -> (i64, usize) {
         n = next_n;
     }
 
-    let max_product = n as i64;
+    let max_product = n as u64;
     let overflow_length = (0.15 * total_memory_in_bytes / crec_size) as usize; // remaining 15%
     (max_product, overflow_length)
 }
