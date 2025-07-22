@@ -11,8 +11,8 @@ use std::io::{self, BufRead};
 #[derive(Clone, Copy, Debug, Default, Pod, Zeroable)]
 #[repr(C)]
 pub struct Crec {
-    pub word1: i32,
-    pub word2: i32,
+    pub word1: u32,
+    pub word2: u32,
     pub val: f64,
 }
 

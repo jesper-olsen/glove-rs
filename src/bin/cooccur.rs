@@ -76,16 +76,16 @@ impl PartialOrd for CrecId {
 
 // Helper function to read one CREC from a binary file
 fn read_crec(reader: &mut BufReader<File>) -> io::Result<Crec> {
-    let word1 = reader.read_i32::<LittleEndian>()?;
-    let word2 = reader.read_i32::<LittleEndian>()?;
+    let word1 = reader.read_u32::<LittleEndian>()?;
+    let word2 = reader.read_u32::<LittleEndian>()?;
     let val = reader.read_f64::<LittleEndian>()?;
     Ok(Crec { word1, word2, val })
 }
 
 // Helper function to write one CREC to a binary stream (File or Stdout)
 fn write_crec<W: Write>(writer: &mut W, crec: &Crec) -> io::Result<()> {
-    writer.write_i32::<LittleEndian>(crec.word1)?;
-    writer.write_i32::<LittleEndian>(crec.word2)?;
+    writer.write_u32::<LittleEndian>(crec.word1)?;
+    writer.write_u32::<LittleEndian>(crec.word2)?;
     writer.write_f64::<LittleEndian>(crec.val)?;
     Ok(())
 }
@@ -213,15 +213,15 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
                     } else {
                         // Product is too big, store in overflow buffer
                         cr_overflow[cr_idx] = Crec {
-                            word1: w1 as i32,
-                            word2: w2 as i32,
+                            word1: w1 as u32,
+                            word2: w2 as u32,
                             val: weight,
                         };
                         cr_idx += 1;
                         if config.symmetric {
                             cr_overflow[cr_idx] = Crec {
-                                word1: w2 as i32,
-                                word2: w1 as i32,
+                                word1: w2 as u32,
+                                word2: w1 as u32,
                                 val: weight,
                             };
                             cr_idx += 1;
@@ -263,8 +263,8 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
                 write_crec(
                     &mut fbigram,
                     &Crec {
-                        word1: x as i32,
-                        word2: y as i32,
+                        word1: x as u32,
+                        word2: y as u32,
                         val,
                     },
                 )?;
