@@ -127,7 +127,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
     }
 
     // --- Build Lookup Table ---
-    let mut lookup = vec![0u64; vocab_size as usize + 1];
+    let mut lookup = vec![0u64; vocab_size + 1];
     lookup[0] = 1;
     for i in 1..=vocab_size {
         let val = config.max_product / i as u64;
@@ -139,11 +139,11 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
             };
     }
     if config.verbose > 1 {
-        eprintln!("table contains {} elements.", lookup[vocab_size as usize]);
+        eprintln!("table contains {} elements.", lookup[vocab_size]);
     }
 
     // --- Allocate Memory ---
-    let mut bigram_table = vec![0.0f64; lookup[vocab_size as usize] as usize];
+    let mut bigram_table = vec![0.0f64; lookup[vocab_size] as usize];
     let mut cr_overflow = vec![Crec::default(); config.overflow_length + 1];
     let mut history = vec![0u32; config.window_size];
     let mut fid_counter = 1;
@@ -212,28 +212,28 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
                         let index1 = (lookup[(w1 - 1) as usize] + w2 as u64 - 2) as usize;
                         bigram_table[index1] += weight;
                         if config.symmetric {
-                            let index2 = (lookup[(w2 - 1) as usize] + w1 as u64 - 2) as usize;
+                            let index2 = (lookup[w2 - 1] + w1 as u64 - 2) as usize;
                             bigram_table[index2] += weight;
                         }
                     } else {
                         // Product is too big, store in overflow buffer
                         cr_overflow[cr_idx] = Crec {
-                            word1: w1,
-                            word2: w2,
+                            word1: w1 as u32,
+                            word2: w2 as u32,
                             val: weight,
                         };
                         cr_idx += 1;
                         if config.symmetric {
                             cr_overflow[cr_idx] = Crec {
-                                word1: w2,
-                                word2: w1,
+                                word1: w2 as u32,
+                                word2: w1 as u32,
                                 val: weight,
                             };
                             cr_idx += 1;
                         }
                     }
                 }
-                history[line_word_idx % config.window_size] = w2;
+                history[line_word_idx % config.window_size] = w2 as u32;
                 line_word_idx += 1;
             }
         }
@@ -261,14 +261,14 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
             eprint!(".");
             io::stderr().flush()?;
         }
-        let y_limit = lookup[x as usize] - lookup[x as usize - 1];
+        let y_limit = lookup[x] - lookup[x - 1];
         for y in 1..=y_limit {
-            let val = bigram_table[(lookup[x as usize - 1] - 2 + y) as usize];
+            let val = bigram_table[(lookup[x - 1] - 2 + y) as usize];
             if val != 0.0 {
                 write_crec(
                     &mut fbigram,
                     &Crec {
-                        word1: x,
+                        word1: x.try_into().unwrap(),
                         word2: y.try_into().unwrap(),
                         val,
                     },
