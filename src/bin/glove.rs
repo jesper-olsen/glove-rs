@@ -119,8 +119,7 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
     if config.verbose > 0 {
         eprintln!("vocab size: {vocab_size}");
         eprintln!("vector size: {}", config.vector_size);
-        eprintln!("x_max: {}", config.x_max);
-        eprintln!("alpha: {}", config.alpha);
+        eprintln!("x_max: {}; alpha {}", config.x_max, config.alpha);
     }
 
     let records_per_thread = calculate_records_per_thread(num_records, config.num_threads);
@@ -174,7 +173,6 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
     }
 
     save_params(&model.w.0, config, vocab_size, -1)?;
-    eprintln!("done.");
 
     Ok(())
 }
@@ -186,18 +184,11 @@ fn glove_thread(task: &ThreadTask, model: &SharedModel, config: &Config) -> io::
     let mut thread_cost = 0.0;
     let mut fin = match File::open(&config.input_file) {
         Ok(file) => file,
-        Err(e) => {
-            eprintln!("Thread {id}: Failed to open input file: {e}", id = task.id);
-            return Err(e);
-        }
+        Err(e) => return Err(e),
     };
 
     let start_offset = task.file_offset * mem::size_of::<Crec>();
     if let Err(e) = fin.seek(SeekFrom::Start(start_offset as u64)) {
-        eprintln!(
-            "Thread {id}: Failed to seek in input file: {e}",
-            id = task.id
-        );
         return Err(e);
     }
 
@@ -285,7 +276,7 @@ fn initialize_parameters(config: &Config, vocab_size: usize) -> GloveModel {
     } else {
         config.seed
     };
-    eprintln!("Using random seed {}", config.seed);
+    eprintln!("Using random seed {}", seed);
     let mut rng = StdRng::seed_from_u64(seed);
     let w_size = 2 * vocab_size * (config.vector_size + 1);
     let mut w_vec = vec![0.0f64; w_size];
