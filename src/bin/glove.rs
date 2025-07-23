@@ -101,7 +101,7 @@ struct ThreadTask {
 
 /// Entry point for the training process.
 fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
-    eprintln!("TRAINING MODEL");
+    eprintln!("Training GloVe Model");
 
     let vocab_size = count_vocab(&config.vocab_file)?;
     let num_records = {
@@ -111,15 +111,11 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
 
     if config.verbose > 1 {
         eprintln!("Read {num_records} records.");
-        eprintln!("Initializing parameters...");
     }
 
     let model = initialize_parameters(config, vocab_size);
     let total_cost = Arc::new(Mutex::new(vec![0.0; config.num_threads]));
 
-    if config.verbose > 1 {
-        eprintln!("done.");
-    }
     if config.verbose > 0 {
         eprintln!("vocab size: {vocab_size}");
         eprintln!("vector size: {}", config.vector_size);
@@ -177,7 +173,6 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
         );
     }
 
-    eprintln!("Saving final parameters...");
     save_params(&model.w.0, config, vocab_size, -1)?;
     eprintln!("done.");
 
@@ -193,7 +188,7 @@ fn glove_thread(task: &ThreadTask, model: &SharedModel, config: &Config) -> io::
         Ok(file) => file,
         Err(e) => {
             eprintln!("Thread {id}: Failed to open input file: {e}", id = task.id);
-            return Ok(());
+            return Err(e);
         }
     };
 
@@ -203,14 +198,14 @@ fn glove_thread(task: &ThreadTask, model: &SharedModel, config: &Config) -> io::
             "Thread {id}: Failed to seek in input file: {e}",
             id = task.id
         );
-        return Ok(());
+        return Err(e);
     }
 
     let mut w_updates1 = vec![0.0f64; config.vector_size];
     let mut w_updates2 = vec![0.0f64; config.vector_size];
     let mut reader = BufReader::with_capacity(8192, fin);
     for _ in 0..task.records_to_process {
-        let Some(cr) = Crec::read_from(&mut reader)? else {
+        let Some(cr) = Crec::read_from_raw(&mut reader)? else {
             break;
         };
 
@@ -219,6 +214,8 @@ fn glove_thread(task: &ThreadTask, model: &SharedModel, config: &Config) -> io::
             continue;
         }
 
+        // vector_size +1 for the bias term
+        // vocab_size: offset for context vectors
         let l1 = (cr.word1 as usize - 1) * (config.vector_size + 1);
         let l2 = (cr.word2 as usize - 1 + model.vocab_size) * (config.vector_size + 1);
 
@@ -280,23 +277,21 @@ fn glove_thread(task: &ThreadTask, model: &SharedModel, config: &Config) -> io::
 }
 
 fn initialize_parameters(config: &Config, vocab_size: usize) -> GloveModel {
-    let mut rng = if config.seed == 0 {
-        let seed = SystemTime::now()
+    let seed = if config.seed == 0 {
+        SystemTime::now()
             .duration_since(SystemTime::UNIX_EPOCH)
             .unwrap()
-            .as_secs();
-        eprintln!("Using random seed {seed}");
-        StdRng::seed_from_u64(seed)
+            .as_secs()
     } else {
-        eprintln!("Using random seed {}", config.seed);
-        StdRng::seed_from_u64(config.seed)
+        config.seed
     };
+    eprintln!("Using random seed {}", config.seed);
+    let mut rng = StdRng::seed_from_u64(seed);
     let w_size = 2 * vocab_size * (config.vector_size + 1);
     let mut w_vec = vec![0.0f64; w_size];
     for val in w_vec.iter_mut() {
         *val = (rng.random::<f64>() - 0.5) / config.vector_size as f64;
     }
-    // FIX 2: Explicitly type the float literal here as well.
     let gradsq_vec = vec![1.0f64; w_size];
     GloveModel {
         w: Arc::new(UnsafeSyncVec(w_vec)),
@@ -313,6 +308,7 @@ fn save_params(w: &[f64], config: &Config, vocab_size: usize, iter: i32) -> io::
         } else {
             format!("{save_file_str}.{iter:03}.bin")
         };
+        eprintln!("Saving final parameters to {bin_filename}");
         let mut f_out = BufWriter::new(File::create(bin_filename)?);
         f_out.write_all(bytemuck::cast_slice(w))?;
     }
@@ -323,6 +319,7 @@ fn save_params(w: &[f64], config: &Config, vocab_size: usize, iter: i32) -> io::
         } else {
             format!("{save_file_str}.{iter:03}.txt")
         };
+        eprintln!("Saving final parameters to {txt_filename}");
         let mut f_out = BufWriter::new(File::create(txt_filename)?);
         let vocab_file = BufReader::new(File::open(&config.vocab_file)?);
 

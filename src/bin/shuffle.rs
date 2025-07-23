@@ -83,7 +83,7 @@ fn shuffle_by_chunks(config: Config) -> io::Result<()> {
     let mut file_counter = 0;
     let mut total_lines: u64 = 0;
 
-    writeln!(stderr, "SHUFFLING COOCCURRENCES")?;
+    writeln!(stderr, "Shuffling cooccurrences")?;
     if config.verbose > 0 {
         writeln!(stderr, "array size: {}", config.array_size)?;
     }
@@ -92,7 +92,7 @@ fn shuffle_by_chunks(config: Config) -> io::Result<()> {
         stderr.flush()?;
     }
 
-    while let Some(crec) = Crec::read_from(&mut stdin)? {
+    while let Some(crec) = Crec::read_from_raw(&mut stdin)? {
         array.push(crec);
         // If the array is full, shuffle it and write to a temporary file.
         if array.len() >= config.array_size {
@@ -143,7 +143,7 @@ fn save_shuffled_chunk(
     let filename = format!("{x}_{file_id:04}.bin", x = config.temp_file_head);
     let file = File::create(&filename)?;
     let mut writer = BufWriter::new(file);
-    Crec::write_slice(&mut writer, array)?;
+    Crec::write_slice_raw(&mut writer, array)?;
 
     Ok(())
 }

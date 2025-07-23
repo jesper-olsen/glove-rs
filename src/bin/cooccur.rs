@@ -106,7 +106,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
     let vocab_size = rank;
     if config.verbose > 1 {
         eprintln!("loaded {vocab_size} words.");
-        eprintln!("Building lookup table...");
+        eprint!("Building lookup table...");
     }
 
     // --- Build Lookup Table ---
@@ -162,7 +162,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
                 // Sort and write the overflow buffer
                 cr_overflow[..cr_idx].sort_unstable();
                 for rec in &cr_overflow[..cr_idx] {
-                    Crec::write(&mut foverflow, rec)?;
+                    Crec::write_to_raw(&mut foverflow, rec)?;
                 }
                 foverflow.flush()?;
 
@@ -228,7 +228,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
     }
     cr_overflow[..cr_idx].sort_unstable();
     for rec in &cr_overflow[..cr_idx] {
-        Crec::write(&mut foverflow, rec)?;
+        Crec::write_to_raw(&mut foverflow, rec)?;
     }
     drop(foverflow); // Close the last overflow file
 
@@ -239,16 +239,25 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
         eprint!("Writing cooccurrences to disk");
     }
 
+    // Calculate the number of digits in the total count once, so we can pad the
+    // output correctly. This prevents leftover characters when the number of
+    // digits changes (e.g., from 1000 to 999).
+    let total_width = vocab_size.to_string().len();
+
     for x in 1..=vocab_size {
         if config.verbose > 1 && x % (vocab_size / 100 + 1) == 0 {
-            eprint!(".");
+            eprint!(
+                "\rWriting cooccurrences: {:>width$}/{vocab_size}",
+                x,
+                width = total_width
+            );
             io::stderr().flush()?;
         }
         let y_limit = lookup[x] - lookup[x - 1];
         for y in 1..=y_limit {
             let val = bigram_table[(lookup[x - 1] - 2 + y) as usize];
             if val != 0.0 {
-                Crec::write(
+                Crec::write_to_raw(
                     &mut fbigram,
                     &Crec {
                         word1: x.try_into().unwrap(),
@@ -293,7 +302,7 @@ pub fn merge_files(config: &Config, num_files: usize) -> io::Result<()> {
         };
         let mut reader = BufReader::new(file);
 
-        if let Some(crec) = Crec::read_from(&mut reader)? {
+        if let Some(crec) = Crec::read_from_raw(&mut reader)? {
             pq.push(CrecId { crec, id: i });
         }
         file_readers.push(Some(reader));
@@ -316,7 +325,7 @@ pub fn merge_files(config: &Config, num_files: usize) -> io::Result<()> {
     // 2. Refill the queue from the file we just read from.
     let file_id = old_item.id;
     if let Some(Some(reader)) = file_readers.get_mut(file_id) {
-        if let Some(new_crec) = Crec::read_from(reader)? {
+        if let Some(new_crec) = Crec::read_from_raw(reader)? {
             pq.push(CrecId {
                 crec: new_crec,
                 id: file_id,
@@ -330,7 +339,7 @@ pub fn merge_files(config: &Config, num_files: usize) -> io::Result<()> {
             old_item.crec.val += new_item.crec.val;
         } else {
             // Different word pair. Write the completed `old` record...
-            Crec::write(&mut fout, &old_item.crec)?;
+            Crec::write_to_raw(&mut fout, &old_item.crec)?;
             counter += 1;
             if config.verbose > 1 && counter % 100_000 == 0 {
                 eprint!("\x1B[39G{counter} lines.");
@@ -343,7 +352,7 @@ pub fn merge_files(config: &Config, num_files: usize) -> io::Result<()> {
         // Refill the queue from the file of the item we just processed.
         let file_id = new_item.id;
         if let Some(Some(reader)) = file_readers.get_mut(file_id) {
-            if let Some(next_crec) = Crec::read_from(reader)? {
+            if let Some(next_crec) = Crec::read_from_raw(reader)? {
                 pq.push(CrecId {
                     crec: next_crec,
                     id: file_id,
@@ -353,7 +362,7 @@ pub fn merge_files(config: &Config, num_files: usize) -> io::Result<()> {
     }
 
     // 4. Write the very last accumulated record.
-    Crec::write(&mut fout, &old_item.crec)?;
+    Crec::write_to_raw(&mut fout, &old_item.crec)?;
     counter += 1;
     fout.flush()?;
 
