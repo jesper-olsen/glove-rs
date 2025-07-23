@@ -89,7 +89,6 @@ struct SharedModel<'a> {
     w: &'a Arc<UnsafeSyncVec>,
     gradsq: &'a Arc<UnsafeSyncVec>,
     cost: &'a Arc<Mutex<Vec<f64>>>,
-    config: &'a Config,
     vocab_size: usize,
 }
 
@@ -140,7 +139,6 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
                     w: &model.w,
                     gradsq: &model.gradsq,
                     cost: &total_cost,
-                    config,
                     vocab_size,
                 };
 
@@ -150,7 +148,7 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
                     file_offset: records_per_thread.iter().take(id).sum::<usize>(),
                 };
 
-                let handle = s.spawn(move || glove_thread(&task_spec, &model_state));
+                let handle = s.spawn(move || glove_thread(&task_spec, &model_state, config));
                 handles.push(handle);
             }
             for (i, handle) in handles.into_iter().enumerate() {
@@ -186,13 +184,12 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn glove_thread(task: &ThreadTask, model: &SharedModel) -> io::Result<()> {
-    let config = model.config;
+fn glove_thread(task: &ThreadTask, model: &SharedModel, config: &Config) -> io::Result<()> {
     let w_ptr = model.w.0.as_ptr() as *mut f64;
     let gradsq_ptr = model.gradsq.0.as_ptr() as *mut f64;
 
     let mut thread_cost = 0.0;
-    let mut fin = match File::open(&model.config.input_file) {
+    let mut fin = match File::open(&config.input_file) {
         Ok(file) => file,
         Err(e) => {
             eprintln!("Thread {id}: Failed to open input file: {e}", id = task.id);
@@ -209,8 +206,8 @@ fn glove_thread(task: &ThreadTask, model: &SharedModel) -> io::Result<()> {
         return Ok(());
     }
 
-    let mut w_updates1 = vec![0.0f64; model.config.vector_size];
-    let mut w_updates2 = vec![0.0f64; model.config.vector_size];
+    let mut w_updates1 = vec![0.0f64; config.vector_size];
+    let mut w_updates2 = vec![0.0f64; config.vector_size];
     let mut reader = BufReader::with_capacity(8192, fin);
     for _ in 0..task.records_to_process {
         let Some(cr) = Crec::read_from(&mut reader)? else {
@@ -222,22 +219,21 @@ fn glove_thread(task: &ThreadTask, model: &SharedModel) -> io::Result<()> {
             continue;
         }
 
-        let l1 = (cr.word1 as usize - 1) * (model.config.vector_size + 1);
-        let l2 = (cr.word2 as usize - 1 + model.vocab_size) * (model.config.vector_size + 1);
+        let l1 = (cr.word1 as usize - 1) * (config.vector_size + 1);
+        let l2 = (cr.word2 as usize - 1 + model.vocab_size) * (config.vector_size + 1);
 
         unsafe {
             let mut diff = 0.0;
-            for i in 0..model.config.vector_size {
+            for i in 0..config.vector_size {
                 diff += *w_ptr.add(i + l1) * *w_ptr.add(i + l2);
             }
-            diff += *w_ptr.add(model.config.vector_size + l1)
-                + *w_ptr.add(model.config.vector_size + l2)
+            diff += *w_ptr.add(config.vector_size + l1) + *w_ptr.add(config.vector_size + l2)
                 - cr.val.ln();
 
-            let fdiff = if cr.val > model.config.x_max {
+            let fdiff = if cr.val > config.x_max {
                 diff
             } else {
-                (cr.val / model.config.x_max).powf(model.config.alpha) * diff
+                (cr.val / config.x_max).powf(config.alpha) * diff
             };
 
             if diff.is_nan() || fdiff.is_nan() {
@@ -246,7 +242,7 @@ fn glove_thread(task: &ThreadTask, model: &SharedModel) -> io::Result<()> {
 
             thread_cost += 0.5 * fdiff * diff;
 
-            for i in 0..model.config.vector_size {
+            for i in 0..config.vector_size {
                 let grad1 = fdiff * *w_ptr.add(i + l2);
                 let grad2 = fdiff * *w_ptr.add(i + l1);
                 let temp1 =
