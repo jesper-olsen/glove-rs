@@ -1,11 +1,12 @@
 use bytemuck::pod_read_unaligned;
 use bytemuck::{Pod, Zeroable};
+use byteorder::{LittleEndian, WriteBytesExt};
 use rayon::prelude::*;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
-use std::io::{self, BufRead, ErrorKind, Read};
+use std::io::{self, BufRead, ErrorKind, Read, Write};
 use std::mem;
 
 /// Co-occurrence record struct. `repr(C)` and `Pod` ensure the memory layout
@@ -58,6 +59,14 @@ impl Crec {
             Err(e) if e.kind() == ErrorKind::UnexpectedEof => Ok(None),
             Err(e) => Err(e),
         }
+    }
+
+    // write one CREC to a binary stream (File or Stdout)
+    pub fn write<W: Write>(writer: &mut W, crec: &Crec) -> io::Result<()> {
+        writer.write_u32::<LittleEndian>(crec.word1)?;
+        writer.write_u32::<LittleEndian>(crec.word2)?;
+        writer.write_f64::<LittleEndian>(crec.val)?;
+        Ok(())
     }
 }
 

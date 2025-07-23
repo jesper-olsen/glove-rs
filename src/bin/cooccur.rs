@@ -1,4 +1,3 @@
-use byteorder::{LittleEndian, ReadBytesExt, WriteBytesExt};
 use clap::Parser;
 use glove_rs::Crec;
 use std::cmp::Ordering;
@@ -72,22 +71,6 @@ impl PartialOrd for CrecId {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
     }
-}
-
-// Helper function to read one CREC from a binary file
-fn read_crec(reader: &mut BufReader<File>) -> io::Result<Crec> {
-    let word1 = reader.read_u32::<LittleEndian>()?;
-    let word2 = reader.read_u32::<LittleEndian>()?;
-    let val = reader.read_f64::<LittleEndian>()?;
-    Ok(Crec { word1, word2, val })
-}
-
-// Helper function to write one CREC to a binary stream (File or Stdout)
-fn write_crec<W: Write>(writer: &mut W, crec: &Crec) -> io::Result<()> {
-    writer.write_u32::<LittleEndian>(crec.word1)?;
-    writer.write_u32::<LittleEndian>(crec.word2)?;
-    writer.write_f64::<LittleEndian>(crec.val)?;
-    Ok(())
 }
 
 /// Collect word-word cooccurrence counts from stdin.
@@ -179,9 +162,9 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
                 // Sort and write the overflow buffer
                 cr_overflow[..cr_idx].sort_unstable();
                 for rec in &cr_overflow[..cr_idx] {
-                    write_crec(&mut foverflow, rec)?;
+                    Crec::write(&mut foverflow, rec)?;
                 }
-                foverflow.flush()?; // Ensure data is written
+                foverflow.flush()?;
 
                 fid_counter += 1;
                 overflow_filename = format!("{}_{:04}.bin", config.file_head, fid_counter);
@@ -245,7 +228,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
     }
     cr_overflow[..cr_idx].sort_unstable();
     for rec in &cr_overflow[..cr_idx] {
-        write_crec(&mut foverflow, rec)?;
+        Crec::write(&mut foverflow, rec)?;
     }
     drop(foverflow); // Close the last overflow file
 
@@ -265,7 +248,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
         for y in 1..=y_limit {
             let val = bigram_table[(lookup[x - 1] - 2 + y) as usize];
             if val != 0.0 {
-                write_crec(
+                Crec::write(
                     &mut fbigram,
                     &Crec {
                         word1: x.try_into().unwrap(),
@@ -310,8 +293,7 @@ pub fn merge_files(config: &Config, num_files: usize) -> io::Result<()> {
         };
         let mut reader = BufReader::new(file);
 
-        // Read the first record and push it to the heap if the file is not empty.
-        if let Ok(crec) = read_crec(&mut reader) {
+        if let Some(crec) = Crec::read_from(&mut reader)? {
             pq.push(CrecId { crec, id: i });
         }
         file_readers.push(Some(reader));
@@ -334,7 +316,7 @@ pub fn merge_files(config: &Config, num_files: usize) -> io::Result<()> {
     // 2. Refill the queue from the file we just read from.
     let file_id = old_item.id;
     if let Some(Some(reader)) = file_readers.get_mut(file_id) {
-        if let Ok(new_crec) = read_crec(reader) {
+        if let Some(new_crec) = Crec::read_from(reader)? {
             pq.push(CrecId {
                 crec: new_crec,
                 id: file_id,
@@ -348,7 +330,7 @@ pub fn merge_files(config: &Config, num_files: usize) -> io::Result<()> {
             old_item.crec.val += new_item.crec.val;
         } else {
             // Different word pair. Write the completed `old` record...
-            write_crec(&mut fout, &old_item.crec)?;
+            Crec::write(&mut fout, &old_item.crec)?;
             counter += 1;
             if config.verbose > 1 && counter % 100_000 == 0 {
                 eprint!("\x1B[39G{counter} lines.");
@@ -361,7 +343,7 @@ pub fn merge_files(config: &Config, num_files: usize) -> io::Result<()> {
         // Refill the queue from the file of the item we just processed.
         let file_id = new_item.id;
         if let Some(Some(reader)) = file_readers.get_mut(file_id) {
-            if let Ok(next_crec) = read_crec(reader) {
+            if let Some(next_crec) = Crec::read_from(reader)? {
                 pq.push(CrecId {
                     crec: next_crec,
                     id: file_id,
@@ -371,9 +353,9 @@ pub fn merge_files(config: &Config, num_files: usize) -> io::Result<()> {
     }
 
     // 4. Write the very last accumulated record.
-    write_crec(&mut fout, &old_item.crec)?;
+    Crec::write(&mut fout, &old_item.crec)?;
     counter += 1;
-    fout.flush()?; // Ensure stdout is flushed
+    fout.flush()?;
 
     eprintln!("\x1B[0GMerging cooccurrence files: processed {counter} lines.");
 
