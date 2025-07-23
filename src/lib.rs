@@ -68,6 +68,16 @@ impl Crec {
         writer.write_f64::<LittleEndian>(crec.val)?;
         Ok(())
     }
+
+    /// Writes a slice of Crec records to a writer in a single, efficient operation.
+    pub fn write_slice<W: Write>(writer: &mut W, crecs: &[Crec]) -> io::Result<()> {
+        // `unsafe` because we are asserting that the memory layout of a slice
+        // of `Crec`s is equivalent to a contiguous slice of bytes.
+        let byte_slice = unsafe {
+            std::slice::from_raw_parts(crecs.as_ptr() as *const u8, std::mem::size_of_val(crecs))
+        };
+        writer.write_all(byte_slice)
+    }
 }
 
 // A struct to hold word vectors in a contiguous array for performance.

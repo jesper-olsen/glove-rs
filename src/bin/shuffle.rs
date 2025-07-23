@@ -97,14 +97,8 @@ fn shuffle_by_chunks(config: Config) -> io::Result<()> {
         // If the array is full, shuffle it and write to a temporary file.
         if array.len() >= config.array_size {
             total_lines += array.len() as u64;
-            shuffle_and_write_chunk(
-                &mut array,
-                &mut rng,
-                &config,
-                file_counter,
-                total_lines,
-                &mut stderr,
-            )?;
+            array.shuffle(&mut rng); // Fisher-Yates shuffle provided by the `rand` crate.
+            save_shuffled_chunk(&mut array, &config, file_counter, total_lines, &mut stderr)?;
             file_counter += 1;
             array.clear();
         }
@@ -113,14 +107,8 @@ fn shuffle_by_chunks(config: Config) -> io::Result<()> {
     // Process the final, potentially smaller, chunk.
     if !array.is_empty() {
         total_lines += array.len() as u64;
-        shuffle_and_write_chunk(
-            &mut array,
-            &mut rng,
-            &config,
-            file_counter,
-            total_lines,
-            &mut stderr,
-        )?;
+        array.shuffle(&mut rng);
+        save_shuffled_chunk(&mut array, &config, file_counter, total_lines, &mut stderr)?;
         file_counter += 1;
     }
 
@@ -133,22 +121,17 @@ fn shuffle_by_chunks(config: Config) -> io::Result<()> {
         writeln!(stderr, "Wrote {file_counter} temporary file(s).")?;
     }
 
-    // Merge the temporary files
     shuffle_merge(file_counter, &config, &mut rng)
 }
 
 /// Helper to shuffle a chunk and write it to a temporary file.
-fn shuffle_and_write_chunk(
+fn save_shuffled_chunk(
     array: &mut [Crec],
-    rng: &mut StdRng,
     config: &Config,
     file_id: usize,
     total_lines: u64,
     stderr: &mut Stderr,
 ) -> io::Result<()> {
-    // Fisher-Yates shuffle provided by the `rand` crate.
-    array.shuffle(rng);
-
     if config.verbose > 1 {
         write!(
             stderr,
@@ -160,12 +143,7 @@ fn shuffle_and_write_chunk(
     let filename = format!("{x}_{file_id:04}.bin", x = config.temp_file_head);
     let file = File::create(&filename)?;
     let mut writer = BufWriter::new(file);
-
-    // Write the contents of the array to the binary file.
-    let byte_slice = unsafe {
-        std::slice::from_raw_parts(array.as_ptr() as *const u8, std::mem::size_of_val(array))
-    };
-    writer.write_all(byte_slice)?;
+    Crec::write_slice(&mut writer, array)?;
 
     Ok(())
 }
