@@ -1,10 +1,12 @@
+use bytemuck::pod_read_unaligned;
 use bytemuck::{Pod, Zeroable};
 use rayon::prelude::*;
 use std::cmp::Ordering;
 use std::collections::HashMap;
 use std::error::Error;
 use std::fs;
-use std::io::{self, BufRead};
+use std::io::{self, BufRead, ErrorKind, Read};
+use std::mem;
 
 /// Co-occurrence record struct. `repr(C)` and `Pod` ensure the memory layout
 /// is identical to the C struct, allowing us to read the binary file directly.
@@ -40,6 +42,24 @@ impl PartialEq for Crec {
 }
 
 impl Eq for Crec {} // Marker trait - necessary for Ord
+
+impl Crec {
+    /// Distinguishes between clean EOF and other I/O errors.
+    /// - `Ok(Some(crec))`: Success.
+    /// - `Ok(None)`: Clean End-Of-File.
+    /// - `Err(e)`: An I/O error occurred.
+    pub fn read_from<R: Read>(reader: &mut R) -> io::Result<Option<Self>> {
+        let mut buffer = [0u8; mem::size_of::<Crec>()];
+        match reader.read_exact(&mut buffer) {
+            Ok(()) => {
+                let crec = pod_read_unaligned(&buffer);
+                Ok(Some(crec))
+            }
+            Err(e) if e.kind() == ErrorKind::UnexpectedEof => Ok(None),
+            Err(e) => Err(e),
+        }
+    }
+}
 
 // A struct to hold word vectors in a contiguous array for performance.
 pub struct WordVectors {

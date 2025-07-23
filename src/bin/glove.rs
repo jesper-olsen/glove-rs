@@ -1,4 +1,3 @@
-use bytemuck::pod_read_unaligned;
 use chrono::Local;
 use clap::Parser;
 use glove_rs::Crec;
@@ -6,7 +5,7 @@ use rand::rngs::StdRng;
 use rand::{Rng, SeedableRng};
 use std::error::Error;
 use std::fs::{File, metadata};
-use std::io::{self, BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
+use std::io::{self, BufRead, BufReader, BufWriter, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::SystemTime;
@@ -119,6 +118,7 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
         *total_cost.lock().unwrap() = vec![0.0; config.num_threads];
 
         thread::scope(|s| {
+            let mut handles = vec![];
             for id in 0..config.num_threads {
                 let thread_config = config.clone();
                 let w_clone = Arc::clone(&model.w);
@@ -127,7 +127,7 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
                 let thread_lines_count = lines_per_thread[id];
                 let thread_offset = lines_per_thread.iter().take(id).sum::<usize>();
 
-                s.spawn(move || {
+                let handle = s.spawn(move || {
                     glove_thread(
                         id,
                         &thread_config,
@@ -137,17 +137,33 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
                         thread_lines_count,
                         thread_offset,
                         vocab_size,
-                    );
+                    )
                 });
+                handles.push(handle);
+            }
+            for (i, handle) in handles.into_iter().enumerate() {
+                match handle.join() {
+                    Ok(Ok(())) => {
+                        if config.verbose > 2 {
+                            eprintln!("Thread {i} finished successfully.");
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        panic!("Thread {i} failed with an I/O error: {e}");
+                    }
+                    Err(_panic_payload) => {
+                        panic!("Thread {i} panicked! This is a bug.");
+                    }
+                }
             }
         });
 
         let final_cost: f64 = total_cost.lock().unwrap().iter().sum();
         let time_str = Local::now().format("%x - %I:%M.%S%p");
         eprintln!(
-            "{time_str}, iter: {:03}, cost: {}",
-            b + 1,
-            final_cost / num_lines as f64
+            "{time_str}, iter: {it:03}, cost: {cost}",
+            it = b + 1,
+            cost = final_cost / num_lines as f64
         );
     }
 
@@ -167,7 +183,7 @@ fn glove_thread(
     lines_to_process: usize,
     file_offset: usize,
     vocab_size: usize,
-) {
+) -> io::Result<()> {
     let w_ptr = w_arc.0.as_ptr() as *mut f64;
     let gradsq_ptr = gradsq_arc.0.as_ptr() as *mut f64;
 
@@ -176,32 +192,26 @@ fn glove_thread(
         Ok(file) => file,
         Err(e) => {
             eprintln!("Thread {id}: Failed to open input file: {e}");
-            return;
+            return Ok(());
         }
     };
 
     let start_offset = file_offset * mem::size_of::<Crec>();
     if let Err(e) = fin.seek(SeekFrom::Start(start_offset as u64)) {
         eprintln!("Thread {id}: Failed to seek in input file: {e}");
-        return;
+        return Ok(());
     }
 
-    let mut reader = BufReader::with_capacity(8192, fin);
-    let mut corec_buf = [0u8; mem::size_of::<Crec>()];
-
-    // FIX 2: Explicitly type the float literal to resolve ambiguity for the compiler.
     let mut w_updates1 = vec![0.0f64; config.vector_size];
     let mut w_updates2 = vec![0.0f64; config.vector_size];
-
+    let mut reader = BufReader::with_capacity(8192, fin);
     for _ in 0..lines_to_process {
-        if reader.read_exact(&mut corec_buf).is_err() {
+        let Some(cr) = Crec::read_from(&mut reader)? else {
             break;
-        }
-
-        // FIX 1: Use pod_read_unaligned for a direct, unambiguous conversion from bytes to struct.
-        let cr: Crec = pod_read_unaligned(&corec_buf);
+        };
 
         if cr.word1 < 1 || cr.word2 < 1 {
+            println!(" w1 {} w2 {}", cr.word1, cr.word2);
             continue;
         }
 
@@ -262,6 +272,7 @@ fn glove_thread(
     }
 
     cost_arc.lock().unwrap()[id] = thread_cost;
+    Ok(())
 }
 
 fn initialize_parameters(config: &Config, vocab_size: usize) -> GloveModel {

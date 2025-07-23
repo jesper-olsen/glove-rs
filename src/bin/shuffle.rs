@@ -92,22 +92,8 @@ fn shuffle_by_chunks(config: Config) -> io::Result<()> {
         stderr.flush()?;
     }
 
-    loop {
-        // Read one Crec struct from stdin
-        let mut crec_buf = [0u8; mem::size_of::<Crec>()];
-        match stdin.read_exact(&mut crec_buf) {
-            Ok(_) => {
-                // This is safe because we read exactly size_of::<Crec>() bytes and Crec is #[repr(C)].
-                let crec: Crec = unsafe { mem::transmute(crec_buf) };
-                array.push(crec);
-            }
-            Err(ref e) if e.kind() == io::ErrorKind::UnexpectedEof => {
-                // End of file, break the loop to process the final chunk.
-                break;
-            }
-            Err(e) => return Err(e),
-        }
-
+    while let Some(crec) = Crec::read_from(&mut stdin)? {
+        array.push(crec);
         // If the array is full, shuffle it and write to a temporary file.
         if array.len() >= config.array_size {
             total_lines += array.len() as u64;
@@ -171,7 +157,7 @@ fn shuffle_and_write_chunk(
         stderr.flush()?;
     }
 
-    let filename = format!("{}_{:04}.bin", config.temp_file_head, file_id);
+    let filename = format!("{x}_{file_id:04}.bin", x = config.temp_file_head);
     let file = File::create(&filename)?;
     let mut writer = BufWriter::new(file);
 
