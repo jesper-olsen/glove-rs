@@ -84,18 +84,34 @@ struct GloveModel {
     gradsq: Arc<UnsafeSyncVec>,
 }
 
+/// Contains references to the shared model data.
+struct SharedModel<'a> {
+    w: &'a Arc<UnsafeSyncVec>,
+    gradsq: &'a Arc<UnsafeSyncVec>,
+    cost: &'a Arc<Mutex<Vec<f64>>>,
+    config: &'a Config,
+    vocab_size: usize,
+}
+
+/// Defines the specific workload for a single thread.
+struct ThreadTask {
+    id: usize,
+    records_to_process: usize,
+    file_offset: usize,
+}
+
 /// Entry point for the training process.
 fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
     eprintln!("TRAINING MODEL");
 
     let vocab_size = count_vocab(&config.vocab_file)?;
-    let num_lines = {
+    let num_records = {
         let file_meta = metadata(&config.input_file)?;
         (file_meta.len() / mem::size_of::<Crec>() as u64) as usize
     };
 
     if config.verbose > 1 {
-        eprintln!("Read {num_lines} lines.");
+        eprintln!("Read {num_records} records.");
         eprintln!("Initializing parameters...");
     }
 
@@ -112,7 +128,7 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
         eprintln!("alpha: {}", config.alpha);
     }
 
-    let lines_per_thread = calculate_lines_per_thread(num_lines, config.num_threads);
+    let records_per_thread = calculate_records_per_thread(num_records, config.num_threads);
 
     for b in 0..config.num_iter {
         *total_cost.lock().unwrap() = vec![0.0; config.num_threads];
@@ -120,25 +136,21 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
         thread::scope(|s| {
             let mut handles = vec![];
             for id in 0..config.num_threads {
-                let thread_config = config.clone();
-                let w_clone = Arc::clone(&model.w);
-                let gradsq_clone = Arc::clone(&model.gradsq);
-                let thread_cost_arc = Arc::clone(&total_cost);
-                let thread_lines_count = lines_per_thread[id];
-                let thread_offset = lines_per_thread.iter().take(id).sum::<usize>();
+                let model_state = SharedModel {
+                    w: &model.w,
+                    gradsq: &model.gradsq,
+                    cost: &total_cost,
+                    config,
+                    vocab_size,
+                };
 
-                let handle = s.spawn(move || {
-                    glove_thread(
-                        id,
-                        &thread_config,
-                        &w_clone,
-                        &gradsq_clone,
-                        &thread_cost_arc,
-                        thread_lines_count,
-                        thread_offset,
-                        vocab_size,
-                    )
-                });
+                let task_spec = ThreadTask {
+                    id,
+                    records_to_process: records_per_thread[id],
+                    file_offset: records_per_thread.iter().take(id).sum::<usize>(),
+                };
+
+                let handle = s.spawn(move || glove_thread(&task_spec, &model_state));
                 handles.push(handle);
             }
             for (i, handle) in handles.into_iter().enumerate() {
@@ -163,7 +175,7 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
         eprintln!(
             "{time_str}, iter: {it:03}, cost: {cost}",
             it = b + 1,
-            cost = final_cost / num_lines as f64
+            cost = final_cost / num_records as f64
         );
     }
 
@@ -174,38 +186,33 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn glove_thread(
-    id: usize,
-    config: &Config,
-    w_arc: &Arc<UnsafeSyncVec>,
-    gradsq_arc: &Arc<UnsafeSyncVec>,
-    cost_arc: &Arc<Mutex<Vec<f64>>>,
-    lines_to_process: usize,
-    file_offset: usize,
-    vocab_size: usize,
-) -> io::Result<()> {
-    let w_ptr = w_arc.0.as_ptr() as *mut f64;
-    let gradsq_ptr = gradsq_arc.0.as_ptr() as *mut f64;
+fn glove_thread(task: &ThreadTask, model: &SharedModel) -> io::Result<()> {
+    let config = model.config;
+    let w_ptr = model.w.0.as_ptr() as *mut f64;
+    let gradsq_ptr = model.gradsq.0.as_ptr() as *mut f64;
 
     let mut thread_cost = 0.0;
-    let mut fin = match File::open(&config.input_file) {
+    let mut fin = match File::open(&model.config.input_file) {
         Ok(file) => file,
         Err(e) => {
-            eprintln!("Thread {id}: Failed to open input file: {e}");
+            eprintln!("Thread {id}: Failed to open input file: {e}", id = task.id);
             return Ok(());
         }
     };
 
-    let start_offset = file_offset * mem::size_of::<Crec>();
+    let start_offset = task.file_offset * mem::size_of::<Crec>();
     if let Err(e) = fin.seek(SeekFrom::Start(start_offset as u64)) {
-        eprintln!("Thread {id}: Failed to seek in input file: {e}");
+        eprintln!(
+            "Thread {id}: Failed to seek in input file: {e}",
+            id = task.id
+        );
         return Ok(());
     }
 
-    let mut w_updates1 = vec![0.0f64; config.vector_size];
-    let mut w_updates2 = vec![0.0f64; config.vector_size];
+    let mut w_updates1 = vec![0.0f64; model.config.vector_size];
+    let mut w_updates2 = vec![0.0f64; model.config.vector_size];
     let mut reader = BufReader::with_capacity(8192, fin);
-    for _ in 0..lines_to_process {
+    for _ in 0..task.records_to_process {
         let Some(cr) = Crec::read_from(&mut reader)? else {
             break;
         };
@@ -215,21 +222,22 @@ fn glove_thread(
             continue;
         }
 
-        let l1 = (cr.word1 as usize - 1) * (config.vector_size + 1);
-        let l2 = (cr.word2 as usize - 1 + vocab_size) * (config.vector_size + 1);
+        let l1 = (cr.word1 as usize - 1) * (model.config.vector_size + 1);
+        let l2 = (cr.word2 as usize - 1 + model.vocab_size) * (model.config.vector_size + 1);
 
         unsafe {
             let mut diff = 0.0;
-            for i in 0..config.vector_size {
+            for i in 0..model.config.vector_size {
                 diff += *w_ptr.add(i + l1) * *w_ptr.add(i + l2);
             }
-            diff += *w_ptr.add(config.vector_size + l1) + *w_ptr.add(config.vector_size + l2)
+            diff += *w_ptr.add(model.config.vector_size + l1)
+                + *w_ptr.add(model.config.vector_size + l2)
                 - cr.val.ln();
 
-            let fdiff = if cr.val > config.x_max {
+            let fdiff = if cr.val > model.config.x_max {
                 diff
             } else {
-                (cr.val / config.x_max).powf(config.alpha) * diff
+                (cr.val / model.config.x_max).powf(model.config.alpha) * diff
             };
 
             if diff.is_nan() || fdiff.is_nan() {
@@ -238,7 +246,7 @@ fn glove_thread(
 
             thread_cost += 0.5 * fdiff * diff;
 
-            for i in 0..config.vector_size {
+            for i in 0..model.config.vector_size {
                 let grad1 = fdiff * *w_ptr.add(i + l2);
                 let grad2 = fdiff * *w_ptr.add(i + l1);
                 let temp1 =
@@ -271,7 +279,7 @@ fn glove_thread(
         }
     }
 
-    cost_arc.lock().unwrap()[id] = thread_cost;
+    model.cost.lock().unwrap()[task.id] = thread_cost;
     Ok(())
 }
 
@@ -375,12 +383,12 @@ fn count_vocab(path: &Path) -> io::Result<usize> {
     Ok(BufReader::new(File::open(path)?).lines().count())
 }
 
-fn calculate_lines_per_thread(num_lines: usize, num_threads: usize) -> Vec<usize> {
+fn calculate_records_per_thread(num_records: usize, num_threads: usize) -> Vec<usize> {
     if num_threads == 0 {
         return vec![];
     }
-    let base = num_lines / num_threads;
-    let extra = num_lines % num_threads;
+    let base = num_records / num_threads;
+    let extra = num_records % num_threads;
     (0..num_threads)
         .map(|i| if i < extra { base + 1 } else { base })
         .collect()
