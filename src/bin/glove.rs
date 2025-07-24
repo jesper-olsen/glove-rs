@@ -201,7 +201,7 @@ fn glove_thread(task: &ThreadTask, model: &SharedModel, config: &Config) -> io::
         };
 
         if cr.word1 < 1 || cr.word2 < 1 {
-            println!(" w1 {} w2 {}", cr.word1, cr.word2);
+            // should never happen - unless corrupt value read
             continue;
         }
 

@@ -109,17 +109,18 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
         eprint!("Building lookup table...");
     }
 
-    // --- Build Lookup Table ---
+    // --- Build Lookup Table for co-occurances
+    //  lookup[i] is the index, one past the end, of row i in the flattened array
     let mut lookup = vec![0u64; vocab_size + 1];
     lookup[0] = 1;
     for i in 1..=vocab_size {
         let val = config.max_product / i as u64;
-        lookup[i] = lookup[i - 1]
-            + if val < vocab_size as u64 {
-                val
-            } else {
-                vocab_size as u64
-            };
+        let allowed_cols = if val < vocab_size as u64 {
+            val
+        } else {
+            vocab_size as u64
+        };
+        lookup[i] = lookup[i - 1] + allowed_cols;
     }
     if config.verbose > 1 {
         eprintln!("table contains {} elements.", lookup[vocab_size]);
