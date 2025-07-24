@@ -10,7 +10,9 @@ COOCCUR_SHUFFLED_FILE="cooccur_shuffled.bin"
 SAVE_FILE="vectors"
 MIN_COUNT=5
 
-# Note that glove uses Hogwild - thread scheduling makes the results random despite using same seed
+# The PRNGs used in shuffle and glove can be seeded. 
+# Note, however, that thread scheduling in glove also introduces a random element - the exact results are not
+# repeatable even with same seeding when more than one thread is used.
 #SHUFFLE_SEED=42
 #GLOVE_SEED=43
 

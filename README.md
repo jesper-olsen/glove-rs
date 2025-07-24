@@ -1,22 +1,34 @@
 # GloVe-rs
 
-Word Vectors - Rusty implementation of [GloVe](https://github.com/stanfordnlp/GloVe).
+A fast, safe, and complete Rust port of [Stanford's GloVe](https://github.com/stanfordnlp/GloVe) — an algorithm for learning word vectors from co-occurrence statistics.
 
-GloVe vectors map words to points in a continuous vector space where semantically similar words are located near each other. Unlike simple one-hot encodings, these dense vectors capture rich linguistic patterns and relationships.
+GloVe (Global Vectors for Word Representation) maps words to points in a continuous vector space where semantically similar words are located near each other. These dense vector representations (typically 50–300 dimensions) capture rich linguistic relationships and patterns.
 
 For example:
 
-* Similarity: "cat" and "dog" have similar vectors (high cosine similarity)
-* Analogies: vector("king") - vector("man") + vector("woman") ≈ vector("queen")
-* Semantic arithmetic: vector("paris") - vector("france") + vector("japan") ≈ vector("tokyo")
-* These 50-300 dimensional vectors are learned from word co-occurrence statistics and form the foundation for many NLP applications.
+- **Similarity:** `"cat"` and `"dog"` have similar vectors (high cosine similarity)
+- **Analogies:** `vector("king") - vector("man") + vector("woman") ≈ vector("queen")`
+- **Semantic arithmetic:** `vector("paris") - vector("france") + vector("japan") ≈ vector("tokyo")`
+
+These embeddings are foundational for many NLP applications including search, classification, translation, and more.
 
 ## References
 
 1. [GloVe: Global Vectors for Word Representation](https://nlp.stanford.edu/projects/glove/)
 2. ["GloVe: Global Vectors for Word Representation", Jeffrey Pennington,   Richard Socher,   Christopher D. Manning](https://nlp.stanford.edu/pubs/glove.pdf)
 
-## Run
+
+## Installation
+
+Clone the repository and build using Cargo:
+
+```bash
+git clone https://github.com/jesper-olsen/glove-rs.git
+cd glove-rs
+cargo build --release
+
+
+## Training Example
 
 Download text8 (Wikipedia, 100M characters, 17.5M words):
 
@@ -62,7 +74,7 @@ Total Questions seen/total: 91.21% (17827/19544)
 sh demo.sh  698.23s user 27.69s system 566% cpu 2:08.21 total
 ```
 
-Word analogy - Interactive
+Word analogy - Interactive Tool
 ```
 % cargo run --bin word_analogy --release
 Word Analogy Tool - Type 'EXIT' to quit
@@ -101,7 +113,7 @@ Enter 3 words: king queen man
  30:  0.63438 men
 ```
 
-Near words - Interactive
+Near words - Interactive Tool
 ```
 % cargo run --release --bin near_words
 Near Words Tool - Type 'EXIT' to quit
@@ -143,3 +155,11 @@ Rank      Score Word
   29:   0.580376 duke
   30:   0.579909 maria
 ```
+
+##  Project Goals
+
+- Port the original C-based GloVe code to idiomatic, safe Rust
+- Maintain compatibility and similar output formats
+- Enable easier integration into Rust-based NLP pipelines
+
+
