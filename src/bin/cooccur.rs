@@ -95,7 +95,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
 
     // --- Read Vocabulary ---
     let vocab_file = File::open(&config.vocab_file)?;
-    let mut vocab_hash = HashMap::new();
+    let mut vocab_hash = HashMap::new(); // string to index - start at 1
     let mut rank = 0usize;
     for line in BufReader::new(vocab_file).lines() {
         if let Some(word) = line?.split_whitespace().next() {

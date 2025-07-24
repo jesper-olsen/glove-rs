@@ -27,10 +27,8 @@ fn main() -> io::Result<()> {
         None => Box::new(BufReader::new(io::stdin())),
     };
 
-    // Count word frequencies
     let word_counts = count_words(reader)?;
 
-    // Filter by min_count and collect vocabulary
     let mut vocabulary: Vec<(String, usize)> = word_counts
         .into_iter()
         .filter(|(_, count)| *count >= args.min_count)
@@ -39,7 +37,6 @@ fn main() -> io::Result<()> {
     // Sort by frequency (descending) and then alphabetically
     vocabulary.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
 
-    // Print vocabulary to stdout
     for (word, count) in vocabulary {
         println!("{word}\t{count}");
     }
@@ -50,17 +47,13 @@ fn main() -> io::Result<()> {
 fn count_words(reader: Box<dyn BufRead>) -> io::Result<HashMap<String, usize>> {
     let mut word_counts = HashMap::new();
 
-    // Read the entire content
     let mut content = String::new();
     let mut reader = reader;
     reader.read_to_string(&mut content)?;
 
-    // Process words
     for word in content.split_whitespace() {
-        // Convert to lowercase for case-insensitive counting
         let word = word.to_lowercase();
 
-        // Optional: Remove punctuation (you can adjust this based on your needs)
         let word = word
             .chars()
             .filter(|c| c.is_alphanumeric())
