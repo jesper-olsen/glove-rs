@@ -156,10 +156,12 @@ Rank      Score Word
   30:   0.579909 maria
 ```
 
-##  Project Goals
+## Project Goals
 
 - Port the original C-based GloVe code to idiomatic, safe Rust
 - Maintain compatibility and similar output formats
 - Enable easier integration into Rust-based NLP pipelines
 
+## License
 
+This project is licensed under the [Apache License, Version 2](LICENSE).
