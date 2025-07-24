@@ -10,7 +10,7 @@ For example:
 - **Analogies:** `vector("king") - vector("man") + vector("woman") ≈ vector("queen")`
 - **Semantic arithmetic:** `vector("paris") - vector("france") + vector("japan") ≈ vector("tokyo")`
 
-These embeddings are foundational for many NLP applications including search, classification, translation, and more.
+These word embeddings are foundational for many NLP applications including search, classification, translation, and more.
 
 ## References
 
@@ -26,7 +26,7 @@ Clone the repository and build using Cargo:
 git clone https://github.com/jesper-olsen/glove-rs.git
 cd glove-rs
 cargo build --release
-
+```
 
 ## Training Example
 
