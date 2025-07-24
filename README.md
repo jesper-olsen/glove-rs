@@ -15,7 +15,7 @@ These word embeddings are foundational for many NLP applications including searc
 ## References
 
 1. [GloVe: Global Vectors for Word Representation](https://nlp.stanford.edu/projects/glove/)
-2. ["GloVe: Global Vectors for Word Representation", Jeffrey Pennington,   Richard Socher,   Christopher D. Manning](https://nlp.stanford.edu/pubs/glove.pdf)
+2. ["GloVe: Global Vectors for Word Representation", Jeffrey Pennington, Richard Socher, Christopher D. Manning](https://nlp.stanford.edu/pubs/glove.pdf)
 
 
 ## Installation
@@ -30,7 +30,9 @@ cargo build --release
 
 ## Training Example
 
-Download text8 (Wikipedia, 100M characters, 17.5M words):
+The demo.sh script performs a full training run on the text8 corpus and evaluates the learned vectors using the [Google Analogy Dataset](https://aclweb.org/aclwiki/Google_analogy_test_set_(State_of_the_art)): 
+
+First, download text8 (Wikipedia, 100M characters, 17.5M words):
 
 ```
 % cd DATA
@@ -41,7 +43,7 @@ Download text8 (Wikipedia, 100M characters, 17.5M words):
 0 17005207 100000000 text8
 ```
 
-Train on text8 and evaluate on the [Google Analogy Dataset](https://aclweb.org/aclwiki/Google_analogy_test_set_(State_of_the_art)): 
+Then, run the demo.sh script from the project root:
 ```
 % time sh demo.sh
 
@@ -73,6 +75,10 @@ Total Questions seen/total: 91.21% (17827/19544)
 
 sh demo.sh  698.23s user 27.69s system 566% cpu 2:08.21 total
 ```
+
+## Interactive Tools
+
+After training, you can use the interactive tools to explore the word embeddings:
 
 Word analogy - Interactive Tool
 ```
@@ -161,6 +167,7 @@ Rank      Score Word
 - Port the original C-based GloVe code to idiomatic, safe Rust
 - Maintain compatibility and similar output formats
 - Enable easier integration into Rust-based NLP pipelines
+
 
 ## License
 
