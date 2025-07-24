@@ -16,6 +16,7 @@ These word embeddings are foundational for many NLP applications including searc
 
 1. [GloVe: Global Vectors for Word Representation](https://nlp.stanford.edu/projects/glove/)
 2. ["GloVe: Global Vectors for Word Representation", Jeffrey Pennington, Richard Socher, Christopher D. Manning](https://nlp.stanford.edu/pubs/glove.pdf)
+3. [Stanford CS224N NLP with Deep Learning | Winter 2021 | Lecture 2 - Neural Classifiers](https://youtu.be/gqaHkPEZAew?si=uyyPtreoqT0xz-47)
 
 
 ## Installation
