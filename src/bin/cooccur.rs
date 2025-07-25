@@ -291,7 +291,6 @@ pub fn merge_files(config: &Config, num_files: usize) -> io::Result<()> {
     // --- Open all files and populate the priority queue ---
     for i in 0..num_files {
         let filename = format!("{}_{:04}.bin", config.file_head, i);
-        filenames.push(filename.clone());
         let file = match File::open(&filename) {
             Ok(f) => f,
             Err(e) => {
@@ -301,8 +300,8 @@ pub fn merge_files(config: &Config, num_files: usize) -> io::Result<()> {
                 continue;
             }
         };
+        filenames.push(filename);
         let mut reader = BufReader::new(file);
-
         if let Some(crec) = Crec::read_from_raw(&mut reader)? {
             pq.push(CrecId { crec, id: i });
         }
@@ -315,12 +314,9 @@ pub fn merge_files(config: &Config, num_files: usize) -> io::Result<()> {
     // --- Merge records using the priority queue ---
 
     // 1. Pop the first element to initialize the accumulator
-    let mut old_item = match pq.pop() {
-        Some(item) => item,
-        None => {
-            eprintln!("\nNo data to merge.");
-            return Ok(());
-        }
+    let Some(mut old_item) = pq.pop() else {
+        eprintln!("\nNo data to merge.");
+        return Ok(());
     };
 
     // 2. Refill the queue from the file we just read from.

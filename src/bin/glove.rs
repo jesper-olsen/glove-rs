@@ -200,11 +200,13 @@ fn glove_thread(task: &ThreadTask, model: &SharedModel, config: &Config) -> io::
             break;
         };
 
+        // should never happen - unless corrupt value read or wrong input file passed
+        debug_assert!(cr.word1 >= 1 && cr.word1 as usize <= model.vocab_size);
+        debug_assert!(cr.word2 >= 1 && cr.word2 as usize <= model.vocab_size);
         if cr.word1 < 1 || cr.word2 < 1 {
-            // should never happen - unless corrupt value read
+            eprintln!("Skipping corrupt Crec: {}, {}", cr.word1, cr.word2);
             continue;
         }
-
         // vector_size +1 for the bias term
         // vocab_size: offset for context vectors
         let l1 = (cr.word1 as usize - 1) * (config.vector_size + 1);
