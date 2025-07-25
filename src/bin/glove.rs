@@ -88,13 +88,11 @@ struct GloveModel {
 struct SharedModel<'a> {
     w: &'a Arc<UnsafeSyncVec>,
     gradsq: &'a Arc<UnsafeSyncVec>,
-    cost: &'a Arc<Mutex<Vec<f64>>>,
     vocab_size: usize,
 }
 
 /// Defines the specific workload for a single thread.
 struct ThreadTask {
-    id: usize,
     records_to_process: usize,
     file_offset: usize,
 }
@@ -114,7 +112,6 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
     }
 
     let model = initialize_parameters(config, vocab_size);
-    let total_cost = Arc::new(Mutex::new(vec![0.0; config.num_threads]));
 
     if config.verbose > 0 {
         eprintln!("vocab size: {vocab_size}");
@@ -125,20 +122,17 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
     let records_per_thread = calculate_records_per_thread(num_records, config.num_threads);
 
     for b in 0..config.num_iter {
-        *total_cost.lock().unwrap() = vec![0.0; config.num_threads];
-
+        let mut final_cost = 0.0;
         thread::scope(|s| {
             let mut handles = vec![];
             for id in 0..config.num_threads {
                 let model_state = SharedModel {
                     w: &model.w,
                     gradsq: &model.gradsq,
-                    cost: &total_cost,
                     vocab_size,
                 };
 
                 let task_spec = ThreadTask {
-                    id,
                     records_to_process: records_per_thread[id],
                     file_offset: records_per_thread.iter().take(id).sum::<usize>(),
                 };
@@ -148,10 +142,11 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
             }
             for (i, handle) in handles.into_iter().enumerate() {
                 match handle.join() {
-                    Ok(Ok(())) => {
+                    Ok(Ok(cost)) => {
                         if config.verbose > 2 {
                             eprintln!("Thread {i} finished successfully.");
                         }
+                        final_cost += cost;
                     }
                     Ok(Err(e)) => {
                         panic!("Thread {i} failed with an I/O error: {e}");
@@ -163,7 +158,6 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
             }
         });
 
-        let final_cost: f64 = total_cost.lock().unwrap().iter().sum();
         let time_str = Local::now().format("%x - %I:%M.%S%p");
         eprintln!(
             "{time_str}, iter: {it:03}, cost: {cost}",
@@ -177,7 +171,8 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
-fn glove_thread(task: &ThreadTask, model: &SharedModel, config: &Config) -> io::Result<()> {
+/// Worker thread: Hogwild AdaGrad
+fn glove_thread(task: &ThreadTask, model: &SharedModel, config: &Config) -> io::Result<f64> {
     let w_ptr = model.w.0.as_ptr() as *mut f64;
     let gradsq_ptr = model.gradsq.0.as_ptr() as *mut f64;
 
@@ -207,19 +202,24 @@ fn glove_thread(task: &ThreadTask, model: &SharedModel, config: &Config) -> io::
             eprintln!("Skipping corrupt Crec: {}, {}", cr.word1, cr.word2);
             continue;
         }
+        // l1: start of word1 weights
+        // l2: start of word2 context weights
         // vector_size +1 for the bias term
         // vocab_size: offset for context vectors
         let l1 = (cr.word1 as usize - 1) * (config.vector_size + 1);
         let l2 = (cr.word2 as usize - 1 + model.vocab_size) * (config.vector_size + 1);
 
+        // cost function: J = sum_i,j f(Xij)(word_i dot word_j + b_i + b_j - log(X_ij))^2  (eq 8, p.4)
+        // f(x) = (x/x_max)^alpha if x<x_max, 1 otherwise
         unsafe {
-            let mut diff = 0.0;
-            for i in 0..config.vector_size {
-                diff += *w_ptr.add(i + l1) * *w_ptr.add(i + l2);
-            }
-            diff += *w_ptr.add(config.vector_size + l1) + *w_ptr.add(config.vector_size + l2)
-                - cr.val.ln();
+            let diff = (0..config.vector_size)
+                .map(|i| *w_ptr.add(i + l1) * *w_ptr.add(i + l2))
+                .sum::<f64>()      // dot word1, word2
+                + *w_ptr.add(config.vector_size + l1) // bias of word 1
+                + *w_ptr.add(config.vector_size + l2) // bias of word 2
+                - cr.val.ln(); // log of co-occurence
 
+            // weighted error
             let fdiff = if cr.val > config.x_max {
                 diff
             } else {
@@ -230,11 +230,12 @@ fn glove_thread(task: &ThreadTask, model: &SharedModel, config: &Config) -> io::
                 continue;
             }
 
+            // Derivative of J = 0.5 * g(x)^2 = g(x) * g'(x)
             thread_cost += 0.5 * fdiff * diff;
 
             for i in 0..config.vector_size {
-                let grad1 = fdiff * *w_ptr.add(i + l2);
-                let grad2 = fdiff * *w_ptr.add(i + l1);
+                let grad1 = fdiff * *w_ptr.add(i + l2); // gradient for w_i
+                let grad2 = fdiff * *w_ptr.add(i + l1); // gradient for w_j
                 let temp1 =
                     grad1.clamp(-config.grad_clip_value, config.grad_clip_value) * config.eta;
                 let temp2 =
@@ -265,8 +266,7 @@ fn glove_thread(task: &ThreadTask, model: &SharedModel, config: &Config) -> io::
         }
     }
 
-    model.cost.lock().unwrap()[task.id] = thread_cost;
-    Ok(())
+    Ok(thread_cost)
 }
 
 fn initialize_parameters(config: &Config, vocab_size: usize) -> GloveModel {
@@ -404,7 +404,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         x_max: cli.x_max,
         alpha: cli.alpha,
         eta: cli.eta,
-        grad_clip_value: 100.0, // Hardcoded as in original C
+        grad_clip_value: 100.0,
         verbose: cli.verbose,
         seed: cli.seed,
     };
