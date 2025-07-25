@@ -184,6 +184,9 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
                 let window_start = line_word_idx.saturating_sub(config.window_size);
                 for k in (window_start..line_word_idx).rev() {
                     let w1 = history[k % config.window_size];
+                    if w1 == 0 {
+                        continue;
+                    }
                     let distance = (line_word_idx - k) as f64;
                     let weight = if config.distance_weighting {
                         1.0 / distance
@@ -192,6 +195,10 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
                     };
 
                     if (w1 as u64) < config.max_product / w2 as u64 {
+                        // The bigram_table is a flattened, jagged 2D array.
+                        // lookup[w1-1] gives the starting index for all pairs where the first word is w1.
+                        // The second word, w2, is used as an offset from that starting index.
+                        // Both w1 and w2 are 1-indexed, so we subtract appropriately.
                         // Product is small enough for the main bigram table
                         let index1 = (lookup[(w1 - 1) as usize] + w2 as u64 - 2) as usize;
                         bigram_table[index1] += weight;
@@ -257,8 +264,8 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
                 Crec::write_to_raw(
                     &mut fbigram,
                     &Crec {
-                        word1: x.try_into().unwrap(),
-                        word2: y.try_into().unwrap(),
+                        word1: x as u32, // size constrained by vocab size
+                        word2: y as u32,
                         val,
                     },
                 )?;
@@ -382,11 +389,14 @@ fn calculate_memory_params(memory_limit_gb: f64) -> (u64, usize) {
     }
 
     const GIGABYTE: f64 = 1_073_741_824.0; // bytes, ie. 1024*1024*1024
+    const MEMORY_UTILIZATION_FACTOR: f64 = 0.85; // For main hash table
+    const OVERFLOW_MEMORY_FACTOR: f64 = 1.0 - MEMORY_UTILIZATION_FACTOR; // For overflow buffer
+    const NEWTON_RAPHSON_CONSTANT: f64 = 0.1544313298; // From original C code
 
     // Calculate rlimit: the target number of CREC elements that can fit in 85% of the memory.
     let crec_size = mem::size_of::<Crec>() as f64;
     let total_memory_in_bytes = memory_limit_gb * GIGABYTE;
-    let rlimit = 0.85 * total_memory_in_bytes / crec_size;
+    let rlimit = MEMORY_UTILIZATION_FACTOR * total_memory_in_bytes / crec_size;
 
     // Solve for n using Newton-Raphson-like iterative method.
     // n is an estimate for max_product.
@@ -395,7 +405,7 @@ fn calculate_memory_params(memory_limit_gb: f64) -> (u64, usize) {
 
     for _ in 0..100 {
         // Use a fixed number of iterations to prevent infinite loops
-        let next_n = rlimit / (n.ln() + 0.1544313298);
+        let next_n = rlimit / (n.ln() + NEWTON_RAPHSON_CONSTANT);
         if (n - next_n).abs() < 1e-3 {
             break; // Converged
         }
@@ -403,7 +413,7 @@ fn calculate_memory_params(memory_limit_gb: f64) -> (u64, usize) {
     }
 
     let max_product = n as u64;
-    let overflow_length = (0.15 * total_memory_in_bytes / crec_size) as usize; // remaining 15%
+    let overflow_length = (OVERFLOW_MEMORY_FACTOR * total_memory_in_bytes / crec_size) as usize;
     (max_product, overflow_length)
 }
 
