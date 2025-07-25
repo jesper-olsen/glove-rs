@@ -284,7 +284,7 @@ pub fn merge_files(config: &Config, num_files: usize) -> io::Result<()> {
     let mut filenames = Vec::with_capacity(num_files);
 
     if config.verbose > 1 {
-        eprint!("Merging cooccurrence files: processed 0 lines.");
+        eprint!("Merging cooccurrence files: processed 0 records.");
         io::stderr().flush()?;
     }
 
@@ -339,7 +339,7 @@ pub fn merge_files(config: &Config, num_files: usize) -> io::Result<()> {
             Crec::write_to_raw(&mut fout, &old_item.crec)?;
             counter += 1;
             if config.verbose > 1 && counter % 100_000 == 0 {
-                eprint!("\x1B[39G{counter} lines.");
+                eprint!("\x1B[39G{counter} records.");
                 io::stderr().flush()?;
             }
             // ...and start accumulating the new one.
@@ -363,7 +363,7 @@ pub fn merge_files(config: &Config, num_files: usize) -> io::Result<()> {
     counter += 1;
     fout.flush()?;
 
-    eprintln!("\x1B[0GMerging cooccurrence files: processed {counter} lines.");
+    eprintln!("\x1B[0GMerging cooccurrence files: processed {counter} records.");
 
     // --- Cleanup: Remove temporary files ---
     for filename in filenames {

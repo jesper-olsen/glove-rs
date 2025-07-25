@@ -81,14 +81,14 @@ fn shuffle_by_chunks(config: Config) -> io::Result<()> {
     let mut array: Vec<Crec> = Vec::with_capacity(config.array_size);
     let mut stdin = io::stdin().lock();
     let mut file_counter = 0;
-    let mut total_lines: u64 = 0;
+    let mut total_records: u64 = 0;
 
     writeln!(stderr, "Shuffling cooccurrences")?;
     if config.verbose > 0 {
         writeln!(stderr, "array size: {}", config.array_size)?;
     }
     if config.verbose > 1 {
-        write!(stderr, "Shuffling by chunks: processed 0 lines.")?;
+        write!(stderr, "Shuffling by chunks: processed 0 records.")?;
         stderr.flush()?;
     }
 
@@ -96,9 +96,15 @@ fn shuffle_by_chunks(config: Config) -> io::Result<()> {
         array.push(crec);
         // If the array is full, shuffle it and write to a temporary file.
         if array.len() >= config.array_size {
-            total_lines += array.len() as u64;
+            total_records += array.len() as u64;
             array.shuffle(&mut rng); // Fisher-Yates shuffle provided by the `rand` crate.
-            save_shuffled_chunk(&mut array, &config, file_counter, total_lines, &mut stderr)?;
+            save_shuffled_chunk(
+                &mut array,
+                &config,
+                file_counter,
+                total_records,
+                &mut stderr,
+            )?;
             file_counter += 1;
             array.clear();
         }
@@ -106,9 +112,15 @@ fn shuffle_by_chunks(config: Config) -> io::Result<()> {
 
     // Process the final, potentially smaller, chunk.
     if !array.is_empty() {
-        total_lines += array.len() as u64;
+        total_records += array.len() as u64;
         array.shuffle(&mut rng);
-        save_shuffled_chunk(&mut array, &config, file_counter, total_lines, &mut stderr)?;
+        save_shuffled_chunk(
+            &mut array,
+            &config,
+            file_counter,
+            total_records,
+            &mut stderr,
+        )?;
         file_counter += 1;
     }
 
@@ -116,7 +128,7 @@ fn shuffle_by_chunks(config: Config) -> io::Result<()> {
         // Overwrite the progress line
         write!(
             stderr,
-            "\x1B[2K\rShuffling by chunks: processed {total_lines} lines.\n"
+            "\x1B[2K\rShuffling by chunks: processed {total_records} records.\n"
         )?;
         writeln!(stderr, "Wrote {file_counter} temporary file(s).")?;
     }
@@ -129,13 +141,13 @@ fn save_shuffled_chunk(
     array: &mut [Crec],
     config: &Config,
     file_id: usize,
-    total_lines: u64,
+    total_records: u64,
     stderr: &mut Stderr,
 ) -> io::Result<()> {
     if config.verbose > 1 {
         write!(
             stderr,
-            "\rShuffling by chunks: processed {total_lines} lines."
+            "\rShuffling by chunks: processed {total_records} records."
         )?;
         stderr.flush()?;
     }
@@ -156,7 +168,7 @@ fn shuffle_merge(num_files: usize, config: &Config, rng: &mut StdRng) -> io::Res
 
     let mut stderr = io::stderr();
     let mut stdout = BufWriter::new(io::stdout().lock());
-    let mut total_lines: u64 = 0;
+    let mut total_records: u64 = 0;
 
     // Open all temporary files for reading
     let mut readers = Vec::new();
@@ -167,7 +179,7 @@ fn shuffle_merge(num_files: usize, config: &Config, rng: &mut StdRng) -> io::Res
     }
 
     if config.verbose > 0 {
-        write!(stderr, "Merging temp files: processed 0 lines.")?;
+        write!(stderr, "Merging temp files: processed 0 records.")?;
         stderr.flush()?;
     }
 
@@ -207,7 +219,7 @@ fn shuffle_merge(num_files: usize, config: &Config, rng: &mut StdRng) -> io::Res
             break;
         }
 
-        total_lines += merge_buffer.len() as u64;
+        total_records += merge_buffer.len() as u64;
         merge_buffer.shuffle(rng);
 
         let byte_slice = unsafe {
@@ -219,7 +231,7 @@ fn shuffle_merge(num_files: usize, config: &Config, rng: &mut StdRng) -> io::Res
         stdout.write_all(byte_slice)?;
 
         if config.verbose > 0 {
-            write!(stderr, "\x1B[31G{total_lines} lines.")?;
+            write!(stderr, "\x1B[31G{total_records} records.")?;
             stderr.flush()?;
         }
     }
@@ -227,7 +239,7 @@ fn shuffle_merge(num_files: usize, config: &Config, rng: &mut StdRng) -> io::Res
     if config.verbose > 0 {
         writeln!(
             stderr,
-            "\x1B[0GMerging temp files: processed {total_lines} lines."
+            "\x1B[0GMerging temp files: processed {total_records} records."
         )?;
     }
 
