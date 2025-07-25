@@ -88,7 +88,7 @@ fn shuffle_by_chunks(config: Config) -> io::Result<()> {
         writeln!(stderr, "array size: {}", config.array_size)?;
     }
     if config.verbose > 1 {
-        write!(stderr, "Shuffling by chunks: processed 0 records.")?;
+        write!(stderr, "Shuffling: processed 0 records.")?;
         stderr.flush()?;
     }
 
@@ -98,13 +98,11 @@ fn shuffle_by_chunks(config: Config) -> io::Result<()> {
         if array.len() >= config.array_size {
             total_records += array.len() as u64;
             array.shuffle(&mut rng); // Fisher-Yates shuffle provided by the `rand` crate.
-            save_shuffled_chunk(
-                &mut array,
-                &config,
-                file_counter,
-                total_records,
-                &mut stderr,
-            )?;
+            save_shuffled_chunk(&mut array, &config, file_counter, &mut stderr)?;
+            if config.verbose > 1 {
+                write!(stderr, "\rShuffling: processed {total_records} records.")?;
+                stderr.flush()?;
+            }
             file_counter += 1;
             array.clear();
         }
@@ -114,13 +112,7 @@ fn shuffle_by_chunks(config: Config) -> io::Result<()> {
     if !array.is_empty() {
         total_records += array.len() as u64;
         array.shuffle(&mut rng);
-        save_shuffled_chunk(
-            &mut array,
-            &config,
-            file_counter,
-            total_records,
-            &mut stderr,
-        )?;
+        save_shuffled_chunk(&mut array, &config, file_counter, &mut stderr)?;
         file_counter += 1;
     }
 
@@ -128,7 +120,7 @@ fn shuffle_by_chunks(config: Config) -> io::Result<()> {
         // Overwrite the progress line
         write!(
             stderr,
-            "\x1B[2K\rShuffling by chunks: processed {total_records} records.\n"
+            "\x1B[2K\rShuffling: processed {total_records} records.\n"
         )?;
         writeln!(stderr, "Wrote {file_counter} temporary file(s).")?;
     }
@@ -137,26 +129,11 @@ fn shuffle_by_chunks(config: Config) -> io::Result<()> {
 }
 
 /// Helper to shuffle a chunk and write it to a temporary file.
-fn save_shuffled_chunk(
-    array: &mut [Crec],
-    config: &Config,
-    file_id: usize,
-    total_records: u64,
-    stderr: &mut Stderr,
-) -> io::Result<()> {
-    if config.verbose > 1 {
-        write!(
-            stderr,
-            "\rShuffling by chunks: processed {total_records} records."
-        )?;
-        stderr.flush()?;
-    }
-
+fn save_shuffled_chunk(array: &mut [Crec], config: &Config, file_id: usize) -> io::Result<()> {
     let filename = format!("{x}_{file_id:04}.bin", x = config.temp_file_head);
     let file = File::create(&filename)?;
     let mut writer = BufWriter::new(file);
     Crec::write_slice_raw(&mut writer, array)?;
-
     Ok(())
 }
 
