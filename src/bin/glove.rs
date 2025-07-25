@@ -177,15 +177,10 @@ fn glove_thread(task: &ThreadTask, model: &SharedModel, config: &Config) -> io::
     let gradsq_ptr = model.gradsq.0.as_ptr() as *mut f64;
 
     let mut thread_cost = 0.0;
-    let mut fin = match File::open(&config.input_file) {
-        Ok(file) => file,
-        Err(e) => return Err(e),
-    };
+    let mut fin = File::open(&config.input_file)?;
 
     let start_offset = task.file_offset * mem::size_of::<Crec>();
-    if let Err(e) = fin.seek(SeekFrom::Start(start_offset as u64)) {
-        return Err(e);
-    }
+    fin.seek(SeekFrom::Start(start_offset as u64))?;
 
     let mut w_updates1 = vec![0.0f64; config.vector_size];
     let mut w_updates2 = vec![0.0f64; config.vector_size];
@@ -278,7 +273,7 @@ fn initialize_parameters(config: &Config, vocab_size: usize) -> GloveModel {
     } else {
         config.seed
     };
-    eprintln!("Using random seed {}", seed);
+    eprintln!("Using random seed {seed}");
     let mut rng = StdRng::seed_from_u64(seed);
     let w_size = 2 * vocab_size * (config.vector_size + 1);
     let mut w_vec = vec![0.0f64; w_size];

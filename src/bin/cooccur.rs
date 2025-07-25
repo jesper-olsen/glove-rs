@@ -243,15 +243,11 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
     // Calculate the number of digits in the total count once, so we can pad the
     // output correctly. This prevents leftover characters when the number of
     // digits changes (e.g., from 1000 to 999).
-    let total_width = vocab_size.to_string().len();
+    let width = vocab_size.to_string().len();
 
     for x in 1..=vocab_size {
         if config.verbose > 1 && x % (vocab_size / 100 + 1) == 0 {
-            eprint!(
-                "\rWriting cooccurrences: {:>width$}/{vocab_size}",
-                x,
-                width = total_width
-            );
+            eprint!("\rWriting cooccurrences: {x:>width$}/{vocab_size}");
             io::stderr().flush()?;
         }
         let y_limit = lookup[x] - lookup[x - 1];

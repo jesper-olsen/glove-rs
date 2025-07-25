@@ -66,7 +66,7 @@ impl Crec {
 
     /// The _raw methods for reading and writing take the endianness for given
     /// Don't use raw if training and testing on opposite endian systems...
-
+    ///
     /// Distinguishes between clean EOF and other I/O errors.
     /// - `Ok(Some(crec))`: Success.
     /// - `Ok(None)`: Clean End-Of-File.

@@ -7,7 +7,7 @@ use rand::SeedableRng;
 use rand::rngs::StdRng;
 use rand::seq::SliceRandom;
 use std::fs::{self, File};
-use std::io::{self, BufReader, BufWriter, Read, Stderr, Write};
+use std::io::{self, BufReader, BufWriter, Read, Write};
 use std::mem;
 use std::process;
 use std::time::SystemTime;
@@ -98,7 +98,7 @@ fn shuffle_by_chunks(config: Config) -> io::Result<()> {
         if array.len() >= config.array_size {
             total_records += array.len() as u64;
             array.shuffle(&mut rng); // Fisher-Yates shuffle provided by the `rand` crate.
-            save_shuffled_chunk(&mut array, &config, file_counter, &mut stderr)?;
+            save_shuffled_chunk(&mut array, &config, file_counter)?;
             if config.verbose > 1 {
                 write!(stderr, "\rShuffling: processed {total_records} records.")?;
                 stderr.flush()?;
@@ -112,7 +112,7 @@ fn shuffle_by_chunks(config: Config) -> io::Result<()> {
     if !array.is_empty() {
         total_records += array.len() as u64;
         array.shuffle(&mut rng);
-        save_shuffled_chunk(&mut array, &config, file_counter, &mut stderr)?;
+        save_shuffled_chunk(&mut array, &config, file_counter)?;
         file_counter += 1;
     }
 
