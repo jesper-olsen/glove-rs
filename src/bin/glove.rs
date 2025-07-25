@@ -204,7 +204,7 @@ fn glove_thread(task: &ThreadTask, model: &SharedModel, config: &Config) -> io::
         let l1 = (cr.word1 as usize - 1) * (config.vector_size + 1);
         let l2 = (cr.word2 as usize - 1 + model.vocab_size) * (config.vector_size + 1);
 
-        // cost function: J = sum_i,j f(Xij)(word_i dot word_j + b_i + b_j - log(X_ij))^2  (eq 8, p.4)
+        // cost function: J = sum_i,j f(X_ij)(word_i dot word_j + b_i + b_j - log(X_ij))^2  (eq 8, p.4)
         // f(x) = (x/x_max)^alpha if x<x_max, 1 otherwise
         unsafe {
             let diff = (0..config.vector_size)
@@ -288,7 +288,12 @@ fn initialize_parameters(config: &Config, vocab_size: usize) -> GloveModel {
 }
 
 fn save_params(w: &[f64], config: &Config, vocab_size: usize, iter: i32) -> io::Result<()> {
-    let save_file_str = config.save_file.to_str().unwrap();
+    let save_file_str = config.save_file.to_str().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Save file path is not valid UTF-8",
+        )
+    })?;
 
     if config.use_binary > 0 {
         let bin_filename = if iter < 0 {
