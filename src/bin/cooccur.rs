@@ -191,7 +191,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
                         1.0
                     };
 
-                    if w1 < (config.max_product / w2 as u64).try_into().unwrap() {
+                    if (w1 as u64) < config.max_product / w2 as u64 {
                         // Product is small enough for the main bigram table
                         let index1 = (lookup[(w1 - 1) as usize] + w2 as u64 - 2) as usize;
                         bigram_table[index1] += weight;

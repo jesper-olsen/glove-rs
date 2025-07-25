@@ -7,7 +7,7 @@ use std::error::Error;
 use std::fs::{File, metadata};
 use std::io::{self, BufRead, BufReader, BufWriter, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::SystemTime;
 use std::{mem, thread};
 
