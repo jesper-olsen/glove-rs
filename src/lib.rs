@@ -10,7 +10,7 @@ use std::path::Path;
 
 #[derive(Default)]
 pub struct Vocabulary {
-    word2index: HashMap<String, usize>,
+    word2index: HashMap<&'static str, usize>,
     index2word: Vec<String>,
 }
 
@@ -27,35 +27,38 @@ impl Vocabulary {
         Ok(vocab)
     }
 
+    fn leak_string(s: String) -> &'static str {
+        Box::leak(Box::new(s))
+    }
+
     pub fn add(&mut self, word: &str) -> usize {
         if let Some(&idx) = self.word2index.get(word) {
             return idx;
         }
         let idx = self.size();
-        self.word2index.insert(word.to_string(), idx);
-        self.index2word.push(word.to_string());
+        let word_owned = word.to_string();
+        let word_ref = Self::leak_string(word_owned);
+        self.word2index.insert(word_ref, idx);
+        self.index2word.push(word_ref.to_string());
         idx
     }
 
     /// Returns the integer ID for a given word.
     #[inline]
-    pub fn get_index(&self, word: &str) -> Option<&usize> {
-        self.word2index.get(word)
+    pub fn get_index(&self, word: &str) -> Option<usize> {
+        self.word2index.get(word).copied()
     }
 
-    /// Returns the integer ID for a given word.
+    /// Returns the word for a given integer ID.
     #[inline]
     pub fn get_word(&self, idx: usize) -> Option<&str> {
-        if idx >= self.index2word.len() {
-            return None;
-        }
-        Some(self.index2word[idx].as_str())
+        self.index2word.get(idx).map(|s| s.as_str())
     }
 
     /// Returns the total number of words in the vocabulary.
     #[inline]
     pub fn size(&self) -> usize {
-        self.word2index.len()
+        self.index2word.len()
     }
 }
 
@@ -70,8 +73,10 @@ mod tests {
         let idx2 = vocab.add("two");
         let idx3 = vocab.add("three");
         assert_eq!(vocab.size(), 3);
-        assert_eq!(vocab.get_index("one"), Some(&idx1));
-        assert_eq!(vocab.get_index("two"), Some(&idx2));
-        assert_eq!(vocab.get_index("three"), Some(&idx3));
+        assert_eq!(vocab.get_index("one"), Some(idx1));
+        assert_eq!(vocab.get_index("two"), Some(idx2));
+        assert_eq!(vocab.get_index("three"), Some(idx3));
+        let s = vocab.get_word(idx3).unwrap();
+        assert_eq!("three", s);
     }
 }

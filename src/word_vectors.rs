@@ -18,7 +18,7 @@ impl WordVectors {
         self.vocab.get_word(idx).unwrap()
     }
 
-    pub fn get_index(&self, word: &str) -> Option<&usize> {
+    pub fn get_index(&self, word: &str) -> Option<usize> {
         self.vocab.get_index(word)
     }
 
@@ -95,9 +95,9 @@ impl WordVectors {
             return None;
         };
 
-        let va = self.get_vector(*a_idx);
-        let vb = self.get_vector(*b_idx);
-        let vc = self.get_vector(*c_idx);
+        let va = self.get_vector(a_idx);
+        let vb = self.get_vector(b_idx);
+        let vc = self.get_vector(c_idx);
 
         let mut target_vector = vec![0.0; self.dims];
         for i in 0..self.dims {
@@ -109,7 +109,7 @@ impl WordVectors {
             .vectors
             .par_chunks_exact(self.dims) // Iterate over the vectors in parallel
             .enumerate() // Get the index of each vector
-            .filter(|(i, _)| i != a_idx && i != b_idx && i != c_idx) // Filter out input words
+            .filter(|(i, _)| *i != a_idx && *i != b_idx && *i != c_idx) // Filter out input words
             .map(|(i, v_slice)| {
                 // Calculate dot product between the current word's vector and the target
                 let score = v_slice
@@ -136,9 +136,9 @@ impl WordVectors {
             return None;
         };
 
-        let va = self.get_vector(*a_idx);
-        let vb = self.get_vector(*b_idx);
-        let vc = self.get_vector(*c_idx);
+        let va = self.get_vector(a_idx);
+        let vb = self.get_vector(b_idx);
+        let vc = self.get_vector(c_idx);
 
         let mut target_vector = vec![0.0; self.dims];
         for i in 0..self.dims {
@@ -150,7 +150,7 @@ impl WordVectors {
             .vectors
             .par_chunks_exact(self.dims)
             .enumerate()
-            .filter(|(i, _)| i != a_idx && i != b_idx && i != c_idx)
+            .filter(|(i, _)| *i != a_idx && *i != b_idx && *i != c_idx)
             .map(|(i, v_slice)| {
                 let score = v_slice
                     .iter()
@@ -176,7 +176,7 @@ impl WordVectors {
         // Get indices for all words, collecting valid ones
         let indices: Vec<usize> = words
             .iter()
-            .filter_map(|word| self.get_index(word).copied())
+            .filter_map(|word| self.get_index(word))
             .collect();
 
         // Return None if no valid words found

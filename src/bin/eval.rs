@@ -117,7 +117,7 @@ fn analogy_test_file(
     for (a, b, c, d) in read_analogy_test(fname)? {
         total += 1;
 
-        let Some(&answer_idx) = word_vectors.get_index(&d) else {
+        let Some(answer_idx) = word_vectors.get_index(&d) else {
             continue;
         };
         let Some(guess_idx) = word_vectors.analogy(&a, &b, &c) else {

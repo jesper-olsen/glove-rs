@@ -176,7 +176,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
                 io::stderr().flush()?;
             }
 
-            if let Some(&w2) = vocab.get_index(word) {
+            if let Some(w2) = vocab.get_index(word) {
                 // Iterate over context words in the history window
                 let window_start = line_word_idx.saturating_sub(config.window_size);
                 for k in (window_start..line_word_idx).rev() {
