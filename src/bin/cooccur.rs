@@ -5,6 +5,7 @@ use std::collections::{BinaryHeap, HashMap};
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::mem;
+use std::path::Path;
 
 /// The clap struct for parsing command-line arguments.
 #[derive(Parser, Debug)]
@@ -12,7 +13,7 @@ use std::mem;
 struct Args {
     /// Set verbosity level
     #[arg(short, long, default_value_t = 2)]
-    verbose: i32,
+    verbose: u8,
 
     /// Use symmetric context window
     #[arg(long)]
@@ -42,7 +43,7 @@ struct Args {
 // Configuration struct to replace global variables
 pub struct Config {
     pub window_size: usize,
-    pub verbose: i32,
+    pub verbose: u8,
     pub symmetric: bool,
     pub distance_weighting: bool,
     pub max_product: u64,
@@ -73,6 +74,39 @@ impl PartialOrd for CrecId {
     }
 }
 
+struct Vocabulary {
+    hash: HashMap<String, usize>,
+    size: usize,
+}
+
+impl Vocabulary {
+    /// Loads a vocabulary from a file, creating a mapping from words to 1-based ranks.
+    pub fn from_file(path: &Path) -> io::Result<Self> {
+        let vocab_file = File::open(path)?;
+        let mut hash = HashMap::new();
+        let mut rank = 0;
+        for line in BufReader::new(vocab_file).lines() {
+            if let Some(word) = line?.split_whitespace().next() {
+                rank += 1;
+                hash.insert(word.to_string(), rank);
+            }
+        }
+        Ok(Vocabulary { hash, size: rank })
+    }
+
+    /// Returns the integer ID for a given word.
+    #[inline]
+    pub fn get(&self, word: &str) -> Option<&usize> {
+        self.hash.get(word)
+    }
+
+    /// Returns the total number of words in the vocabulary.
+    #[inline]
+    pub fn size(&self) -> usize {
+        self.size
+    }
+}
+
 /// Collect word-word cooccurrence counts from stdin.
 pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
     eprintln!("COUNTING COOCCURRENCES");
@@ -94,19 +128,10 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
     }
 
     // --- Read Vocabulary ---
-    let vocab_file = File::open(&config.vocab_file)?;
-    let mut vocab_hash = HashMap::new(); // string to index - start at 1
-    let mut rank = 0usize;
-    for line in BufReader::new(vocab_file).lines() {
-        if let Some(word) = line?.split_whitespace().next() {
-            rank += 1;
-            vocab_hash.insert(word.to_string(), rank);
-        }
-    }
-    let vocab_size = rank;
+    let vocab = Vocabulary::from_file(&config.vocab_file.as_ref())?;
+    let vocab_size = vocab.size();
     if config.verbose > 1 {
-        eprintln!("loaded {vocab_size} words.");
-        eprint!("Building lookup table...");
+        eprintln!("Loaded {vocab_size} words.");
     }
 
     // --- Build Lookup Table for co-occurances
@@ -123,7 +148,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
         lookup[i] = lookup[i - 1] + allowed_cols;
     }
     if config.verbose > 1 {
-        eprintln!("table contains {} elements.", lookup[vocab_size]);
+        eprintln!("Lookup table contains {} elements.", lookup[vocab_size]);
     }
 
     // --- Allocate Memory ---
@@ -179,7 +204,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
                 io::stderr().flush()?;
             }
 
-            if let Some(&w2) = vocab_hash.get(word) {
+            if let Some(&w2) = vocab.get(word) {
                 // Iterate over context words in the history window
                 let window_start = line_word_idx.saturating_sub(config.window_size);
                 for k in (window_start..line_word_idx).rev() {
