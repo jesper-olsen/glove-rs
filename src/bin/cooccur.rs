@@ -73,6 +73,84 @@ impl PartialOrd for CrecId {
     }
 }
 
+struct CooccurrenceMatrix {
+    lookup: Vec<usize>,
+    bigram_table: Vec<f64>,
+    verbose: u8,
+}
+
+impl CooccurrenceMatrix {
+    fn new(vocab_size: usize, max_product: u64, verbose: u8) -> Self {
+        // lookup[i] is the start index in bigram_table for row i (0-based).
+        // lookup[vocab_size] is one past the end of the last row.
+        let mut lookup = vec![0usize; vocab_size + 1];
+        for i in 0..vocab_size {
+            let val = max_product / (i as u64 + 1);
+            let allowed_cols = if val < vocab_size as u64 {
+                val as usize
+            } else {
+                vocab_size
+            };
+            lookup[i + 1] = lookup[i] + allowed_cols;
+        }
+
+        let bigram_table = vec![0.0f64; lookup[vocab_size]];
+        if verbose > 1 {
+            eprintln!("Lookup table contains {} elements.", lookup[vocab_size]);
+        }
+        CooccurrenceMatrix {
+            lookup,
+            bigram_table,
+            verbose,
+        }
+    }
+
+    fn update(&mut self, w1: usize, w2: usize, weight: f64, symmetric: bool) {
+        // The bigram_table is a flattened, jagged 2D array.
+        // lookup[w1] gives the start index for row w1.
+        // w2 is the column offset within that row.
+        let index1 = self.lookup[w1] + w2;
+        self.bigram_table[index1] += weight;
+        if symmetric {
+            let index2 = self.lookup[w2] + w1;
+            self.bigram_table[index2] += weight;
+        }
+    }
+
+    fn write_to_disk(&self, filename: &str) -> io::Result<()> {
+        let mut fbigram = BufWriter::new(File::create(filename)?);
+
+        // Calculate the number of digits in the total count for padding output
+        let vocab_size = self.lookup.len() - 1;
+        let width = vocab_size.to_string().len();
+        if self.verbose > 1 {
+            eprint!("Writing cooccurrences to disk");
+        }
+
+        for x in 0..self.lookup.len() - 1 {
+            if self.verbose > 1 && (x + 1) % (vocab_size / 100 + 1) == 0 {
+                eprint!("\rWriting cooccurrences: {x:>width$}/{vocab_size}");
+                io::stderr().flush()?;
+            }
+            let y_limit = self.lookup[x + 1] - self.lookup[x];
+            for y in 0..y_limit {
+                let val = self.bigram_table[self.lookup[x] + y];
+                if val != 0.0 {
+                    Crec::write_to_raw(
+                        &mut fbigram,
+                        &Crec {
+                            word1: x as u32,
+                            word2: y as u32,
+                            val,
+                        },
+                    )?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
 /// Collect word-word cooccurrence counts from stdin.
 pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
     eprintln!("COUNTING COOCCURRENCES");
@@ -106,26 +184,9 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
         ));
     }
 
-    // --- Build Lookup Table for co-occurances
-    // lookup[i] is the start index in bigram_table for row i (0-based).
-    // lookup[vocab_size] is one past the end of the last row.
-    let mut lookup = vec![0usize; vocab_size + 1];
-    lookup[0] = 0;
-    for i in 0..vocab_size {
-        let val = config.max_product / (i as u64 + 1);
-        let allowed_cols = if val < vocab_size as u64 {
-            val as usize
-        } else {
-            vocab_size
-        };
-        lookup[i + 1] = lookup[i] + allowed_cols;
-    }
-    if config.verbose > 1 {
-        eprintln!("Lookup table contains {} elements.", lookup[vocab_size]);
-    }
+    let mut com = CooccurrenceMatrix::new(vocab_size, config.max_product, config.verbose);
 
     // --- Allocate Memory ---
-    let mut bigram_table = vec![0.0f64; lookup[vocab_size] as usize];
     let mut cr_overflow = Vec::with_capacity(config.overflow_length + 1);
     let mut history = vec![u32::MAX; config.window_size];
     let mut fid_counter = 1;
@@ -193,15 +254,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
 
                     // Check if the product of indices fits in bigram_table
                     if (w1 as u64 + 1) < config.max_product / (w2 as u64 + 1) {
-                        // The bigram_table is a flattened, jagged 2D array.
-                        // lookup[w1] gives the start index for row w1.
-                        // w2 is the column offset within that row.
-                        let index1 = lookup[w1 as usize] + w2;
-                        bigram_table[index1] += weight;
-                        if config.symmetric {
-                            let index2 = lookup[w2] + w1 as usize;
-                            bigram_table[index2] += weight;
-                        }
+                        com.update(w1 as usize, w2, weight, config.symmetric);
                     } else {
                         // Product is too big, store in overflow buffer
                         let mut cr = Crec {
@@ -236,34 +289,8 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
 
     // Write the main bigram_table to file `_0000.bin`
     let bigram_filename = format!("{}_0000.bin", config.file_head);
-    let mut fbigram = BufWriter::new(File::create(bigram_filename)?);
-    if config.verbose > 1 {
-        eprint!("Writing cooccurrences to disk");
-    }
+    com.write_to_disk(&bigram_filename)?;
 
-    // Calculate the number of digits in the total count for padding output
-    let width = vocab_size.to_string().len();
-
-    for x in 0..vocab_size {
-        if config.verbose > 1 && (x + 1) % (vocab_size / 100 + 1) == 0 {
-            eprint!("\rWriting cooccurrences: {x:>width$}/{vocab_size}");
-            io::stderr().flush()?;
-        }
-        let y_limit = lookup[x + 1] - lookup[x];
-        for y in 0..y_limit {
-            let val = bigram_table[(lookup[x] + y) as usize];
-            if val != 0.0 {
-                Crec::write_to_raw(
-                    &mut fbigram,
-                    &Crec {
-                        word1: x as u32,
-                        word2: y as u32,
-                        val,
-                    },
-                )?;
-            }
-        }
-    }
     if config.verbose > 1 {
         eprintln!("\n{fid_counter} overflow files in total.");
     }
