@@ -153,7 +153,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
 
     // --- Allocate Memory ---
     let mut bigram_table = vec![0.0f64; lookup[vocab_size] as usize];
-    let mut cr_overflow = vec![Crec::default(); config.overflow_length + 1];
+    let mut cr_overflow = Vec::with_capacity(config.overflow_length + 1);
     let mut history = vec![0u32; config.window_size];
     let mut fid_counter = 1;
 
@@ -176,7 +176,6 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
 
     let stdin = io::stdin();
     let mut token_counter = 0u64;
-    let mut cr_idx = 0;
 
     let mut reader = BufReader::new(stdin.lock());
     let mut line = String::new();
@@ -184,18 +183,18 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
     while reader.read_line(&mut line)? > 0 {
         let mut line_word_idx = 0usize;
         for word in line.split_whitespace() {
-            if cr_idx >= overflow_threshold {
+            if cr_overflow.len() >= overflow_threshold {
                 // Sort and write the overflow buffer
-                cr_overflow[..cr_idx].sort_unstable();
-                for rec in &cr_overflow[..cr_idx] {
+                cr_overflow.sort_unstable();
+                for rec in &cr_overflow {
                     Crec::write_to_raw(&mut foverflow, rec)?;
                 }
                 foverflow.flush()?;
+                cr_overflow.clear();
 
                 fid_counter += 1;
                 overflow_filename = format!("{}_{:04}.bin", config.file_head, fid_counter);
                 foverflow = BufWriter::new(File::create(&overflow_filename)?);
-                cr_idx = 0;
             }
 
             token_counter += 1;
@@ -233,19 +232,17 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
                         }
                     } else {
                         // Product is too big, store in overflow buffer
-                        cr_overflow[cr_idx] = Crec {
+                        cr_overflow.push(Crec {
                             word1: w1 as u32,
                             word2: w2 as u32,
                             val: weight,
-                        };
-                        cr_idx += 1;
+                        });
                         if config.symmetric {
-                            cr_overflow[cr_idx] = Crec {
+                            cr_overflow.push(Crec {
                                 word1: w2 as u32,
                                 word2: w1 as u32,
                                 val: weight,
-                            };
-                            cr_idx += 1;
+                            });
                         }
                     }
                 }
@@ -259,10 +256,11 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
     if config.verbose > 1 {
         eprintln!("\x1B[0GProcessed {token_counter} tokens.");
     }
-    cr_overflow[..cr_idx].sort_unstable();
-    for rec in &cr_overflow[..cr_idx] {
+    cr_overflow.sort_unstable();
+    for rec in &cr_overflow {
         Crec::write_to_raw(&mut foverflow, rec)?;
     }
+    cr_overflow.clear();
     drop(foverflow); // Close the last overflow file
 
     // Write the main bigram_table to file `_0000.bin`
