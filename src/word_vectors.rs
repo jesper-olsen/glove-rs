@@ -1,25 +1,25 @@
+use crate::Vocabulary;
 use rayon::prelude::*;
 use std::cmp::Ordering;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::error::Error;
 use std::fs;
 use std::io::{BufRead, BufReader};
 
 // A struct to hold word vectors in a contiguous array for performance.
 pub struct WordVectors {
-    words: Vec<String>,               // vocabulary - index to word map
-    word_map: HashMap<String, usize>, // word to index map
-    vectors: Vec<f64>,                // A single, flattened Vec of all vector data
-    dims: usize,                      // The dimension of each vector
+    vocab: Vocabulary,
+    vectors: Vec<f64>, // A single, flattened Vec of all vector data
+    dims: usize,       // The dimension of each vector
 }
 
 impl WordVectors {
     pub fn get_word(&self, idx: usize) -> &str {
-        &self.words[idx]
+        self.vocab.get_word(idx).unwrap()
     }
 
     pub fn get_index(&self, word: &str) -> Option<&usize> {
-        self.word_map.get(word)
+        self.vocab.get_index(word)
     }
 
     fn get_vector(&self, idx: usize) -> &[f64] {
@@ -32,8 +32,7 @@ impl WordVectors {
         let file = fs::File::open(filename)?;
         let reader = BufReader::new(file);
 
-        let mut words: Vec<String> = Vec::new();
-        let mut word_map: HashMap<String, usize> = HashMap::new();
+        let mut vocab = Vocabulary::default();
         let mut vectors_data: Vec<f64> = Vec::new(); // Accumulate all vector values here
         let mut dims: usize = 0; // Dimension will be determined from the first vector
 
@@ -41,8 +40,7 @@ impl WordVectors {
             let line = line_result?;
             let mut parts = line.split_whitespace();
 
-            if let Some(key) = parts.next() {
-                let current_word = key.to_string();
+            if let Some(current_word) = parts.next() {
                 let mut values: Vec<f64> = parts
                     .map(|s| s.parse::<f64>())
                     .collect::<Result<Vec<f64>, _>>()?;
@@ -71,22 +69,19 @@ impl WordVectors {
                     values.iter_mut().for_each(|e| *e /= norm);
                 }
 
-                // Store the word and its index
-                word_map.insert(current_word.clone(), words.len());
-                words.push(current_word);
+                vocab.add(current_word);
 
                 // Extend the flattened vector data
                 vectors_data.extend_from_slice(&values);
             }
         }
 
-        if words.is_empty() {
+        if vocab.size() == 0 {
             return Err("No word vectors found in the file.".into());
         }
 
         Ok(WordVectors {
-            words,
-            word_map,
+            vocab,
             vectors: vectors_data,
             dims,
         })

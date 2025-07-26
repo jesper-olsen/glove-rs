@@ -1,11 +1,10 @@
 use clap::Parser;
-use glove_rs::Crec;
+use glove_rs::{Crec, Vocabulary};
 use std::cmp::Ordering;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::BinaryHeap;
 use std::fs::{self, File};
 use std::io::{self, BufRead, BufReader, BufWriter, Write};
 use std::mem;
-use std::path::Path;
 
 /// The clap struct for parsing command-line arguments.
 #[derive(Parser, Debug)]
@@ -71,39 +70,6 @@ impl Ord for CrecId {
 impl PartialOrd for CrecId {
     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         Some(self.cmp(other))
-    }
-}
-
-struct Vocabulary {
-    hash: HashMap<String, usize>,
-    size: usize,
-}
-
-impl Vocabulary {
-    /// Loads a vocabulary from a file, creating a mapping from words to 0-based integer indices.
-    pub fn from_file(path: &Path) -> io::Result<Self> {
-        let vocab_file = File::open(path)?;
-        let mut hash = HashMap::new();
-        let mut rank = 0;
-        for line in BufReader::new(vocab_file).lines() {
-            if let Some(word) = line?.split_whitespace().next() {
-                hash.insert(word.to_string(), rank);
-                rank += 1;
-            }
-        }
-        Ok(Vocabulary { hash, size: rank })
-    }
-
-    /// Returns the integer ID for a given word.
-    #[inline]
-    pub fn get(&self, word: &str) -> Option<&usize> {
-        self.hash.get(word)
-    }
-
-    /// Returns the total number of words in the vocabulary.
-    #[inline]
-    pub fn size(&self) -> usize {
-        self.size
     }
 }
 
@@ -210,7 +176,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
                 io::stderr().flush()?;
             }
 
-            if let Some(&w2) = vocab.get(word) {
+            if let Some(&w2) = vocab.get_index(word) {
                 // Iterate over context words in the history window
                 let window_start = line_word_idx.saturating_sub(config.window_size);
                 for k in (window_start..line_word_idx).rev() {
@@ -230,7 +196,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
                         // The bigram_table is a flattened, jagged 2D array.
                         // lookup[w1] gives the start index for row w1.
                         // w2 is the column offset within that row.
-                        let index1 = lookup[w1 as usize] + w2 as usize;
+                        let index1 = lookup[w1 as usize] + w2;
                         bigram_table[index1] += weight;
                         if config.symmetric {
                             let index2 = lookup[w2] + w1 as usize;
