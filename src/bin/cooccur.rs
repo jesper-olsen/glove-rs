@@ -133,6 +133,12 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
     if config.verbose > 1 {
         eprintln!("Loaded {vocab_size} words.");
     }
+    if vocab_size == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            "Empty vocabulary",
+        ));
+    }
 
     // --- Build Lookup Table for co-occurances
     //  lookup[i] is the index, one past the end, of row i in the flattened array
@@ -233,8 +239,8 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
                     } else {
                         // Product is too big, store in overflow buffer
                         let mut cr = Crec {
-                            word1: w1 as u32,
-                            word2: w2 as u32,
+                            word1: (w1 - 1) as u32, // convert to 0-based index
+                            word2: (w2 - 1) as u32, // convert to 0-based index
                             val: weight,
                         };
                         cr_overflow.push(cr);
@@ -285,8 +291,8 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
                 Crec::write_to_raw(
                     &mut fbigram,
                     &Crec {
-                        word1: x as u32, // size constrained by vocab size
-                        word2: y as u32,
+                        word1: (x - 1) as u32, // convert to 0 based index
+                        word2: (y - 1) as u32, // convert to 0 based index
                         val,
                     },
                 )?;
@@ -442,6 +448,13 @@ fn main() -> io::Result<()> {
     let args = Args::parse();
 
     let (max_product, overflow_length) = calculate_memory_params(args.memory);
+
+    if args.window_size == 0 {
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Window size must be positive",
+        ));
+    }
 
     let config = Config {
         verbose: args.verbose,

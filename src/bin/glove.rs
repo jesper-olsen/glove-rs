@@ -190,19 +190,12 @@ fn glove_thread(task: &ThreadTask, model: &SharedModel, config: &Config) -> io::
             break;
         };
 
-        // should never happen - unless corrupt value read or wrong input file passed
-        debug_assert!(cr.word1 >= 1 && cr.word1 as usize <= model.vocab_size);
-        debug_assert!(cr.word2 >= 1 && cr.word2 as usize <= model.vocab_size);
-        if cr.word1 < 1 || cr.word2 < 1 {
-            eprintln!("Skipping corrupt Crec: {}, {}", cr.word1, cr.word2);
-            continue;
-        }
         // l1: start of word1 weights
         // l2: start of word2 context weights
         // vector_size +1 for the bias term
         // vocab_size: offset for context vectors
-        let l1 = (cr.word1 as usize - 1) * (config.vector_size + 1);
-        let l2 = (cr.word2 as usize - 1 + model.vocab_size) * (config.vector_size + 1);
+        let l1 = (cr.word1 as usize) * (config.vector_size + 1);
+        let l2 = (cr.word2 as usize + model.vocab_size) * (config.vector_size + 1);
 
         // cost function: J = sum_i,j f(X_ij)(word_i dot word_j + b_i + b_j - log(X_ij))^2  (eq 8, p.4)
         // f(x) = (x/x_max)^alpha if x<x_max, 1 otherwise
