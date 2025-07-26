@@ -141,16 +141,16 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
     }
 
     // --- Build Lookup Table for co-occurances
-    //  lookup[i] is the start index in bigram_table for row i (0-based).
+    // lookup[i] is the start index in bigram_table for row i (0-based).
     // lookup[vocab_size] is one past the end of the last row.
-    let mut lookup = vec![0u64; vocab_size + 1];
+    let mut lookup = vec![0usize; vocab_size + 1];
     lookup[0] = 0;
     for i in 0..vocab_size {
         let val = config.max_product / (i as u64 + 1);
         let allowed_cols = if val < vocab_size as u64 {
-            val
+            val as usize
         } else {
-            vocab_size as u64
+            vocab_size
         };
         lookup[i + 1] = lookup[i] + allowed_cols;
     }
@@ -230,10 +230,10 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
                         // The bigram_table is a flattened, jagged 2D array.
                         // lookup[w1] gives the start index for row w1.
                         // w2 is the column offset within that row.
-                        let index1 = (lookup[w1 as usize] + w2 as u64) as usize;
+                        let index1 = lookup[w1 as usize] + w2 as usize;
                         bigram_table[index1] += weight;
                         if config.symmetric {
-                            let index2 = (lookup[w2] + w1 as u64) as usize;
+                            let index2 = lookup[w2] + w1 as usize;
                             bigram_table[index2] += weight;
                         }
                     } else {
