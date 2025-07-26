@@ -80,15 +80,15 @@ struct Vocabulary {
 }
 
 impl Vocabulary {
-    /// Loads a vocabulary from a file, creating a mapping from words to 1-based ranks.
+    /// Loads a vocabulary from a file, creating a mapping from words to 0-based integer indices.
     pub fn from_file(path: &Path) -> io::Result<Self> {
         let vocab_file = File::open(path)?;
         let mut hash = HashMap::new();
         let mut rank = 0;
         for line in BufReader::new(vocab_file).lines() {
             if let Some(word) = line?.split_whitespace().next() {
-                rank += 1;
                 hash.insert(word.to_string(), rank);
+                rank += 1;
             }
         }
         Ok(Vocabulary { hash, size: rank })
@@ -141,17 +141,18 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
     }
 
     // --- Build Lookup Table for co-occurances
-    //  lookup[i] is the index, one past the end, of row i in the flattened array
+    //  lookup[i] is the start index in bigram_table for row i (0-based).
+    // lookup[vocab_size] is one past the end of the last row.
     let mut lookup = vec![0u64; vocab_size + 1];
-    lookup[0] = 1;
-    for i in 1..=vocab_size {
-        let val = config.max_product / i as u64;
+    lookup[0] = 0;
+    for i in 0..vocab_size {
+        let val = config.max_product / (i as u64 + 1);
         let allowed_cols = if val < vocab_size as u64 {
             val
         } else {
             vocab_size as u64
         };
-        lookup[i] = lookup[i - 1] + allowed_cols;
+        lookup[i + 1] = lookup[i] + allowed_cols;
     }
     if config.verbose > 1 {
         eprintln!("Lookup table contains {} elements.", lookup[vocab_size]);
@@ -160,7 +161,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
     // --- Allocate Memory ---
     let mut bigram_table = vec![0.0f64; lookup[vocab_size] as usize];
     let mut cr_overflow = Vec::with_capacity(config.overflow_length + 1);
-    let mut history = vec![0u32; config.window_size];
+    let mut history = vec![u32::MAX; config.window_size];
     let mut fid_counter = 1;
 
     let overflow_threshold = if config.symmetric {
@@ -214,7 +215,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
                 let window_start = line_word_idx.saturating_sub(config.window_size);
                 for k in (window_start..line_word_idx).rev() {
                     let w1 = history[k % config.window_size];
-                    if w1 == 0 {
+                    if w1 == u32::MAX {
                         continue;
                     }
                     let distance = (line_word_idx - k) as f64;
@@ -224,23 +225,22 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
                         1.0
                     };
 
-                    if (w1 as u64) < config.max_product / w2 as u64 {
+                    // Check if the product of indices fits in bigram_table
+                    if (w1 as u64 + 1) < config.max_product / (w2 as u64 + 1) {
                         // The bigram_table is a flattened, jagged 2D array.
-                        // lookup[w1-1] gives the starting index for all pairs where the first word is w1.
-                        // The second word, w2, is used as an offset from that starting index.
-                        // Both w1 and w2 are 1-indexed, so we subtract appropriately.
-                        // Product is small enough for the main bigram table
-                        let index1 = (lookup[(w1 - 1) as usize] + w2 as u64 - 2) as usize;
+                        // lookup[w1] gives the start index for row w1.
+                        // w2 is the column offset within that row.
+                        let index1 = (lookup[w1 as usize] + w2 as u64) as usize;
                         bigram_table[index1] += weight;
                         if config.symmetric {
-                            let index2 = (lookup[w2 - 1] + w1 as u64 - 2) as usize;
+                            let index2 = (lookup[w2] + w1 as u64) as usize;
                             bigram_table[index2] += weight;
                         }
                     } else {
                         // Product is too big, store in overflow buffer
                         let mut cr = Crec {
-                            word1: (w1 - 1) as u32, // convert to 0-based index
-                            word2: (w2 - 1) as u32, // convert to 0-based index
+                            word1: w1 as u32, // convert to 0-based index
+                            word2: w2 as u32, // convert to 0-based index
                             val: weight,
                         };
                         cr_overflow.push(cr);
@@ -254,6 +254,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
                 line_word_idx += 1;
             }
         }
+        line.clear(); // Clear the line buffer for reuse
     }
 
     // --- Final Write-out ---
@@ -274,25 +275,23 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
         eprint!("Writing cooccurrences to disk");
     }
 
-    // Calculate the number of digits in the total count once, so we can pad the
-    // output correctly. This prevents leftover characters when the number of
-    // digits changes (e.g., from 1000 to 999).
+    // Calculate the number of digits in the total count for padding output
     let width = vocab_size.to_string().len();
 
-    for x in 1..=vocab_size {
-        if config.verbose > 1 && x % (vocab_size / 100 + 1) == 0 {
+    for x in 0..vocab_size {
+        if config.verbose > 1 && (x + 1) % (vocab_size / 100 + 1) == 0 {
             eprint!("\rWriting cooccurrences: {x:>width$}/{vocab_size}");
             io::stderr().flush()?;
         }
-        let y_limit = lookup[x] - lookup[x - 1];
-        for y in 1..=y_limit {
-            let val = bigram_table[(lookup[x - 1] - 2 + y) as usize];
+        let y_limit = lookup[x + 1] - lookup[x];
+        for y in 0..y_limit {
+            let val = bigram_table[(lookup[x] + y) as usize];
             if val != 0.0 {
                 Crec::write_to_raw(
                     &mut fbigram,
                     &Crec {
-                        word1: (x - 1) as u32, // convert to 0 based index
-                        word2: (y - 1) as u32, // convert to 0 based index
+                        word1: x as u32,
+                        word2: y as u32,
                         val,
                     },
                 )?;
