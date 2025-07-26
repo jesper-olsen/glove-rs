@@ -90,7 +90,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
     if config.verbose > 1 {
         eprintln!("max product: {}", config.max_product);
         eprintln!("overflow length: {}", config.overflow_length);
-        eprintln!("Reading vocab from file \"{}\"...", config.vocab_file);
+        eprint!("Reading vocab from file \"{}\"...", config.vocab_file);
     }
 
     // --- Read Vocabulary ---
