@@ -128,7 +128,7 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
     }
 
     // --- Read Vocabulary ---
-    let vocab = Vocabulary::from_file(&config.vocab_file.as_ref())?;
+    let vocab = Vocabulary::from_file(config.vocab_file.as_ref())?;
     let vocab_size = vocab.size();
     if config.verbose > 1 {
         eprintln!("Loaded {vocab_size} words.");
@@ -232,17 +232,15 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
                         }
                     } else {
                         // Product is too big, store in overflow buffer
-                        cr_overflow.push(Crec {
+                        let mut cr = Crec {
                             word1: w1 as u32,
                             word2: w2 as u32,
                             val: weight,
-                        });
+                        };
+                        cr_overflow.push(cr);
                         if config.symmetric {
-                            cr_overflow.push(Crec {
-                                word1: w2 as u32,
-                                word2: w1 as u32,
-                                val: weight,
-                            });
+                            std::mem::swap(&mut cr.word1, &mut cr.word2);
+                            cr_overflow.push(cr);
                         }
                     }
                 }
