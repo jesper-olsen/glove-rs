@@ -205,8 +205,8 @@ pub fn get_cooccurrences(config: &Config) -> io::Result<usize> {
                     } else {
                         // Product is too big, store in overflow buffer
                         let mut cr = Crec {
-                            word1: w1 as u32, // convert to 0-based index
-                            word2: w2 as u32, // convert to 0-based index
+                            word1: w1 as u32,
+                            word2: w2 as u32,
                             val: weight,
                         };
                         cr_overflow.push(cr);
