@@ -97,33 +97,22 @@ struct ThreadTask {
     file_offset: usize,
 }
 
-/// Entry point for the training process.
-fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
-    eprintln!("Training GloVe Model");
-
-    let vocab_size = count_vocab(&config.vocab_file)?;
-    let num_records = {
-        let file_meta = metadata(&config.input_file)?;
-        (file_meta.len() / mem::size_of::<Crec>() as u64) as usize
-    };
-
-    if config.verbose > 1 {
-        eprintln!("Read {num_records} records.");
-    }
-
-    let model = initialize_parameters(config, vocab_size);
-
-    if config.verbose > 0 {
-        eprintln!("vocab size: {vocab_size}");
-        eprintln!("vector size: {}", config.vector_size);
-        eprintln!("x_max: {}; alpha {}", config.x_max, config.alpha);
-    }
-
+fn train_model_parallel<F>(
+    config: &Config,
+    vocab_size: usize,
+    num_records: usize,
+    model: &GloveModel,
+    thread_fn: F,
+) -> Result<(), Box<dyn Error>>
+where
+    F: Fn(&ThreadTask, &SharedModel, &Config) -> io::Result<f64> + Send + Sync + Copy,
+{
     let records_per_thread = calculate_records_per_thread(num_records, config.num_threads);
     let mut file_offsets = vec![0; config.num_threads];
     for i in 1..config.num_threads {
         file_offsets[i] = file_offsets[i - 1] + records_per_thread[i - 1];
     }
+
     for b in 0..config.num_iter {
         let final_cost = thread::scope(|s| {
             let handles = (0..config.num_threads)
@@ -137,9 +126,10 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
                         records_to_process: records_per_thread[id],
                         file_offset: file_offsets[id],
                     };
-                    s.spawn(move || glove_thread(&task_spec, &model_state, config))
+                    s.spawn(move || thread_fn(&task_spec, &model_state, config))
                 })
                 .collect::<Vec<_>>();
+
             handles
                 .into_iter()
                 .enumerate()
@@ -153,12 +143,13 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
                     Ok(Err(e)) => {
                         panic!("Thread {i} failed with an I/O error: {e}");
                     }
-                    Err(_panic_payload) => {
-                        panic!("Thread {i} panicked! This is a bug.");
+                    Err(_) => {
+                        panic!("Thread {i} panicked!");
                     }
                 })
                 .sum::<f64>()
         });
+
         let time_str = Local::now().format("%x - %I:%M.%S%p");
         eprintln!(
             "{time_str}, iter: {it:03}, cost: {cost}",
@@ -167,8 +158,33 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
         );
     }
 
-    save_params(&model.w.0, config, vocab_size, -1)?;
+    Ok(())
+}
 
+/// Entry point for the training process.
+fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
+    eprintln!("Training GloVe Model");
+
+    let vocab_size = count_vocab(&config.vocab_file)?;
+    let num_records = {
+        let file_meta = metadata(&config.input_file)?;
+        (file_meta.len() / mem::size_of::<Crec>() as u64) as usize
+    };
+
+    if config.verbose > 1 {
+        eprintln!("Read {num_records} records.");
+    }
+    let model = initialize_parameters(config, vocab_size);
+
+    if config.verbose > 0 {
+        eprintln!("vocab size: {vocab_size}");
+        eprintln!("vector size: {}", config.vector_size);
+        eprintln!("x_max: {}; alpha {}", config.x_max, config.alpha);
+    }
+
+    train_model_parallel(config, vocab_size, num_records, &model, glove_thread)?;
+
+    save_params(&model.w.0, config, vocab_size, -1)?;
     Ok(())
 }
 
