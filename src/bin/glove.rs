@@ -120,33 +120,35 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
     }
 
     let records_per_thread = calculate_records_per_thread(num_records, config.num_threads);
-
+    let mut file_offsets = vec![0; config.num_threads];
+    for i in 1..config.num_threads {
+        file_offsets[i] = file_offsets[i - 1] + records_per_thread[i - 1];
+    }
     for b in 0..config.num_iter {
-        let mut final_cost = 0.0;
-        thread::scope(|s| {
-            let mut handles = vec![];
-            for id in 0..config.num_threads {
-                let model_state = SharedModel {
-                    w: &model.w,
-                    gradsq: &model.gradsq,
-                    vocab_size,
-                };
-
-                let task_spec = ThreadTask {
-                    records_to_process: records_per_thread[id],
-                    file_offset: records_per_thread.iter().take(id).sum::<usize>(),
-                };
-
-                let handle = s.spawn(move || glove_thread(&task_spec, &model_state, config));
-                handles.push(handle);
-            }
-            for (i, handle) in handles.into_iter().enumerate() {
-                match handle.join() {
+        let final_cost = thread::scope(|s| {
+            let handles = (0..config.num_threads)
+                .map(|id| {
+                    let model_state = SharedModel {
+                        w: &model.w,
+                        gradsq: &model.gradsq,
+                        vocab_size,
+                    };
+                    let task_spec = ThreadTask {
+                        records_to_process: records_per_thread[id],
+                        file_offset: file_offsets[id],
+                    };
+                    s.spawn(move || glove_thread(&task_spec, &model_state, config))
+                })
+                .collect::<Vec<_>>();
+            handles
+                .into_iter()
+                .enumerate()
+                .map(|(i, handle)| match handle.join() {
                     Ok(Ok(cost)) => {
                         if config.verbose > 2 {
                             eprintln!("Thread {i} finished successfully.");
                         }
-                        final_cost += cost;
+                        cost
                     }
                     Ok(Err(e)) => {
                         panic!("Thread {i} failed with an I/O error: {e}");
@@ -154,10 +156,9 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
                     Err(_panic_payload) => {
                         panic!("Thread {i} panicked! This is a bug.");
                     }
-                }
-            }
+                })
+                .sum::<f64>()
         });
-
         let time_str = Local::now().format("%x - %I:%M.%S%p");
         eprintln!(
             "{time_str}, iter: {it:03}, cost: {cost}",
