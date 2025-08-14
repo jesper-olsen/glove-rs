@@ -1,4 +1,6 @@
-// Same as glove - but without unsafe.
+// Functionally the same as glove - but without unsafe.
+// Uses atomics instead - the implementation is a little slower in practise (M1),
+// because atomics cause less agressive compiler optimisation.
 //
 use chrono::Local;
 use clap::Parser;
