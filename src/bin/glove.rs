@@ -8,6 +8,8 @@ use std::fs::{File, metadata};
 use std::io::{self, BufRead, BufReader, BufWriter, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
+use std::sync::atomic::Ordering;
 use std::time::SystemTime;
 use std::{mem, thread};
 
@@ -72,22 +74,16 @@ struct Config {
     seed: u64,
 }
 
-/// A wrapper around a Vec that allows it to be shared across threads unsafely.
-/// This is necessary to replicate the lock-free SGD ("Hogwild!") behavior of
-/// the original C code, where data races on vector updates are tolerated.
-struct UnsafeSyncVec(Vec<f64>);
-unsafe impl Sync for UnsafeSyncVec {}
-
 /// Holds the model parameters (word vectors and their squared gradients).
 struct GloveModel {
-    w: Arc<UnsafeSyncVec>,
-    gradsq: Arc<UnsafeSyncVec>,
+    w: Arc<Vec<AtomicU64>>,
+    gradsq: Arc<Vec<AtomicU64>>,
 }
 
 /// Contains references to the shared model data.
 struct SharedModel<'a> {
-    w: &'a Arc<UnsafeSyncVec>,
-    gradsq: &'a Arc<UnsafeSyncVec>,
+    w: &'a Arc<Vec<AtomicU64>>,
+    gradsq: &'a Arc<Vec<AtomicU64>>,
     vocab_size: usize,
 }
 
@@ -184,91 +180,110 @@ fn train_glove(config: &Config) -> Result<(), Box<dyn Error>> {
 
     train_model_parallel(config, vocab_size, num_records, &model, glove_thread)?;
 
-    save_params(&model.w.0, config, vocab_size, -1)?;
+    save_params(&model.w, config, vocab_size, -1)?;
     Ok(())
 }
 
-/// Worker thread: Hogwild AdaGrad
+/// Worker thread: Atomic AdaGrad
 fn glove_thread(task: &ThreadTask, model: &SharedModel, config: &Config) -> io::Result<f64> {
-    let w_ptr = model.w.0.as_ptr() as *mut f64;
-    let gradsq_ptr = model.gradsq.0.as_ptr() as *mut f64;
-
     let mut thread_cost = 0.0;
     let mut fin = File::open(&config.input_file)?;
 
     let start_offset = task.file_offset * mem::size_of::<Crec>();
     fin.seek(SeekFrom::Start(start_offset as u64))?;
 
-    let mut w_updates1 = vec![0.0f64; config.vector_size];
-    let mut w_updates2 = vec![0.0f64; config.vector_size];
     let mut reader = BufReader::with_capacity(8192, fin);
+
+    // All shared memory access is done through safe atomic methods.
+    // Using Relaxed ordering is sufficient and fastest. It guarantees atomicity for
+    // individual operations but doesn't add stronger synchronization overhead,
+    // which mimics the Hogwild! spirit while being memory-safe.
+    let ordering = Ordering::Relaxed;
+
+    // short-cuts - help compiler see through pointer indirections
+    let w_slice: &[AtomicU64] = &model.w[..];
+    let gradsq_slice: &[AtomicU64] = &model.gradsq[..];
+
     for _ in 0..task.records_to_process {
         let Some(cr) = Crec::read_from_raw(&mut reader)? else {
             break;
         };
 
-        // l1: start of word1 weights
-        // l2: start of word2 context weights
-        // vector_size +1 for the bias term
-        // vocab_size: offset for context vectors
         let l1 = (cr.word1 as usize) * (config.vector_size + 1);
         let l2 = (cr.word2 as usize + model.vocab_size) * (config.vector_size + 1);
 
-        // cost function: J = sum_i,j f(X_ij)(word_i dot word_j + b_i + b_j - log(X_ij))^2  (eq 8, p.4)
-        // f(x) = (x/x_max)^alpha if x<x_max, 1 otherwise
-        unsafe {
-            let diff = (0..config.vector_size)
-                .map(|i| *w_ptr.add(i + l1) * *w_ptr.add(i + l2))
-                .sum::<f64>()      // dot word1, word2
-                + *w_ptr.add(config.vector_size + l1) // bias of word 1
-                + *w_ptr.add(config.vector_size + l2) // bias of word 2
-                - cr.val.ln(); // log of co-occurence
+        // Racy, but that's the point of Hogwild!
+        let dot_product: f64 = (0..config.vector_size)
+            .map(|i| {
+                let w1_bits = w_slice[i + l1].load(ordering);
+                let w2_bits = w_slice[i + l2].load(ordering);
+                f64::from_bits(w1_bits) * f64::from_bits(w2_bits)
+            })
+            .sum();
 
-            // weighted error
-            let fdiff = if cr.val > config.x_max {
-                diff
-            } else {
-                (cr.val / config.x_max).powf(config.alpha) * diff
-            };
+        let w_bias1_bits = w_slice[config.vector_size + l1].load(ordering);
+        let w_bias2_bits = w_slice[config.vector_size + l2].load(ordering);
+        let diff =
+            dot_product + f64::from_bits(w_bias1_bits) + f64::from_bits(w_bias2_bits) - cr.val.ln();
 
-            if diff.is_nan() || fdiff.is_nan() {
-                continue;
-            }
+        let fdiff = if cr.val > config.x_max {
+            diff
+        } else {
+            (cr.val / config.x_max).powf(config.alpha) * diff
+        };
 
-            // Derivative of J = 0.5 * g(x)^2 = g(x) * g'(x)
-            thread_cost += 0.5 * fdiff * diff;
-
-            for i in 0..config.vector_size {
-                let grad1 = fdiff * *w_ptr.add(i + l2); // gradient for w_i
-                let grad2 = fdiff * *w_ptr.add(i + l1); // gradient for w_j
-                let temp1 =
-                    grad1.clamp(-config.grad_clip_value, config.grad_clip_value) * config.eta;
-                let temp2 =
-                    grad2.clamp(-config.grad_clip_value, config.grad_clip_value) * config.eta;
-                w_updates1[i] = temp1 / (*gradsq_ptr.add(i + l1)).sqrt();
-                w_updates2[i] = temp2 / (*gradsq_ptr.add(i + l2)).sqrt();
-                *gradsq_ptr.add(i + l1) += temp1 * temp1;
-                *gradsq_ptr.add(i + l2) += temp2 * temp2;
-            }
-
-            if !w_updates1.iter().any(|&v| v.is_nan() || v.is_infinite())
-                && !w_updates2.iter().any(|&v| v.is_nan() || v.is_infinite())
-            {
-                for i in 0..config.vector_size {
-                    *w_ptr.add(i + l1) -= w_updates1[i];
-                    *w_ptr.add(i + l2) -= w_updates2[i];
-                }
-            }
-
-            let bias_grad = fdiff * config.eta;
-            let update1 = bias_grad / (*gradsq_ptr.add(config.vector_size + l1)).sqrt();
-            let update2 = bias_grad / (*gradsq_ptr.add(config.vector_size + l2)).sqrt();
-            *w_ptr.add(config.vector_size + l1) -= check_nan(update1);
-            *w_ptr.add(config.vector_size + l2) -= check_nan(update2);
-            let fdiff_sq = fdiff * fdiff;
-            *gradsq_ptr.add(config.vector_size + l1) += fdiff_sq;
-            *gradsq_ptr.add(config.vector_size + l2) += fdiff_sq;
+        if diff.is_nan() || fdiff.is_nan() {
+            continue;
         }
+
+        thread_cost += 0.5 * fdiff * diff;
+
+        for i in 0..config.vector_size {
+            let w_l1_bits = w_slice[i + l1].load(ordering);
+            let w_l2_bits = w_slice[i + l2].load(ordering);
+            let gradsq_l1_bits = gradsq_slice[i + l1].load(ordering);
+            let gradsq_l2_bits = gradsq_slice[i + l2].load(ordering);
+
+            let w_l1 = f64::from_bits(w_l1_bits);
+            let w_l2 = f64::from_bits(w_l2_bits);
+            let gradsq_l1 = f64::from_bits(gradsq_l1_bits);
+            let gradsq_l2 = f64::from_bits(gradsq_l2_bits);
+
+            let grad1 = fdiff * w_l2;
+            let grad2 = fdiff * w_l1;
+
+            let temp1 = grad1.clamp(-config.grad_clip_value, config.grad_clip_value) * config.eta;
+            let temp2 = grad2.clamp(-config.grad_clip_value, config.grad_clip_value) * config.eta;
+
+            // Separate load/calculate/store - fetch_add would syncronise
+            w_slice[i + l1].store((w_l1 - temp1 / gradsq_l1.sqrt()).to_bits(), ordering);
+            w_slice[i + l2].store((w_l2 - temp2 / gradsq_l2.sqrt()).to_bits(), ordering);
+
+            gradsq_slice[i + l1].store((gradsq_l1 + temp1 * temp1).to_bits(), ordering);
+            gradsq_slice[i + l2].store((gradsq_l2 + temp2 * temp2).to_bits(), ordering);
+        }
+
+        // Same load/calculate/store pattern for the biases
+        let w_bias1_bits = w_slice[config.vector_size + l1].load(ordering);
+        let w_bias2_bits = w_slice[config.vector_size + l2].load(ordering);
+        let gradsq_b1_bits = gradsq_slice[config.vector_size + l1].load(ordering);
+        let gradsq_b2_bits = gradsq_slice[config.vector_size + l2].load(ordering);
+
+        let w_b1 = f64::from_bits(w_bias1_bits);
+        let w_b2 = f64::from_bits(w_bias2_bits);
+        let gradsq_b1 = f64::from_bits(gradsq_b1_bits);
+        let gradsq_b2 = f64::from_bits(gradsq_b2_bits);
+
+        let bias_grad = fdiff * config.eta;
+        let update1 = bias_grad / gradsq_b1.sqrt();
+        let update2 = bias_grad / gradsq_b2.sqrt();
+
+        w_slice[config.vector_size + l1].store((w_b1 - check_nan(update1)).to_bits(), ordering);
+        w_slice[config.vector_size + l2].store((w_b2 - check_nan(update2)).to_bits(), ordering);
+
+        let fdiff_sq = fdiff * fdiff;
+        gradsq_slice[config.vector_size + l1].store((gradsq_b1 + fdiff_sq).to_bits(), ordering);
+        gradsq_slice[config.vector_size + l2].store((gradsq_b2 + fdiff_sq).to_bits(), ordering);
     }
 
     Ok(thread_cost)
@@ -286,18 +301,45 @@ fn initialize_parameters(config: &Config, vocab_size: usize) -> GloveModel {
     eprintln!("Using random seed {seed}");
     let mut rng = StdRng::seed_from_u64(seed);
     let w_size = 2 * vocab_size * (config.vector_size + 1);
-    let mut w_vec = vec![0.0f64; w_size];
-    for val in w_vec.iter_mut() {
+
+    // Create the initial weight vectors as f64
+    let mut w_vec_f64 = vec![0.0f64; w_size];
+    for val in w_vec_f64.iter_mut() {
         *val = (rng.random::<f64>() - 0.5) / config.vector_size as f64;
     }
-    let gradsq_vec = vec![1.0f64; w_size];
+    let w_vec = w_vec_f64
+        .into_iter()
+        .map(|f_val| AtomicU64::new(f_val.to_bits()))
+        .collect();
+
+    // Create the initial gradient squared vectors as f64
+    let gradsq_vec_f64 = vec![1.0f64; w_size];
+    let gradsq_vec = gradsq_vec_f64
+        .into_iter()
+        .map(|f_val| AtomicU64::new(f_val.to_bits()))
+        .collect();
+
     GloveModel {
-        w: Arc::new(UnsafeSyncVec(w_vec)),
-        gradsq: Arc::new(UnsafeSyncVec(gradsq_vec)),
+        w: Arc::new(w_vec),
+        gradsq: Arc::new(gradsq_vec),
     }
 }
 
-fn save_params(w: &[f64], config: &Config, vocab_size: usize, iter: i32) -> io::Result<()> {
+fn save_params(
+    w_atomic: &[AtomicU64],
+    config: &Config,
+    vocab_size: usize,
+    iter: i32,
+) -> io::Result<()> {
+    // Atomically load all values into a plain Vec<f64> for saving.
+    let w: Vec<f64> = w_atomic
+        .iter()
+        .map(|atomic_u64| {
+            let bits = atomic_u64.load(Ordering::Relaxed);
+            f64::from_bits(bits)
+        })
+        .collect();
+
     let save_file_str = config.save_file.to_str().ok_or_else(|| {
         io::Error::new(
             io::ErrorKind::InvalidInput,
@@ -313,7 +355,7 @@ fn save_params(w: &[f64], config: &Config, vocab_size: usize, iter: i32) -> io::
         };
         eprintln!("Saving final parameters to {bin_filename}");
         let mut f_out = BufWriter::new(File::create(bin_filename)?);
-        f_out.write_all(bytemuck::cast_slice(w))?;
+        f_out.write_all(bytemuck::cast_slice(&w))?;
     }
 
     if config.use_binary != 1 {
